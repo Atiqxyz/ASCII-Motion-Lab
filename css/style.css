@@ -1,0 +1,118 @@
+* { box-sizing: border-box; }
+
+:root {
+  color-scheme: dark;
+  --background: #0b0b0c;
+  --panel: #141416;
+  --panel-soft: #19191c;
+  --border: #303035;
+  --text: #f2f2f3;
+  --muted: #a4a4ad;
+  --accent: #ff304f;
+  --accent-hover: #e92342;
+  --green: #c4ff79;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--background);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+button, input, select { font: inherit; }
+button, .button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 10px 12px;
+  background: #202024;
+  color: var(--text);
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+button:hover, .button:hover { border-color: var(--accent); }
+button:disabled { opacity: .4; cursor: not-allowed; }
+.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 800; }
+.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+.shell { max-width: 1440px; margin: 0 auto; padding: 24px clamp(12px, 3vw, 36px) 32px; }
+.site-header { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; }
+.brand-mark {
+  flex: 0 0 46px; height: 46px; display: grid; place-items: center;
+  border: 1px solid var(--accent); color: var(--accent); font-size: 20px; font-weight: 900;
+}
+.brand-copy { min-width: 0; }
+.eyebrow { color: var(--accent); font-size: 10px; letter-spacing: .16em; font-weight: 800; margin: 0 0 5px; }
+h1 { font-size: clamp(22px, 4vw, 34px); letter-spacing: -.07em; line-height: 1; margin: 0; }
+.subtitle { color: var(--muted); font-size: 12px; margin: 7px 0 0; }
+.privacy-tag { margin-left: auto; border: 1px solid var(--border); padding: 8px 10px; font-size: 10px; color: var(--green); white-space: nowrap; }
+
+.workspace { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 15px; align-items: start; }
+.panel { border: 1px solid var(--border); border-radius: 7px; background: var(--panel); overflow: hidden; }
+.panel-heading { min-height: 44px; padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); }
+.panel-heading h2, .settings-section h2 { margin: 0; font-size: 11px; letter-spacing: .13em; text-transform: uppercase; }
+.status { color: var(--muted); font-size: 10px; text-align: right; }
+.stage {
+  min-height: 430px; display: grid; place-items: center; overflow: auto; padding: 14px;
+  background-color: #080809;
+  background-image: linear-gradient(#18181b 1px, transparent 1px), linear-gradient(90deg, #18181b 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+.placeholder { max-width: 330px; padding: 35px 12px; color: var(--muted); text-align: center; }
+.placeholder-art { color: var(--accent); font-size: 34px; margin-bottom: 13px; }
+.placeholder strong { display: block; color: var(--text); font-size: 13px; }
+.placeholder p { font-size: 11px; line-height: 1.6; }
+#asciiOutput {
+  display: none; margin: 0; white-space: pre; overflow: visible;
+  font: 7px/7px "Courier New", monospace; letter-spacing: 0; user-select: text;
+  font-variant-ligatures: none;
+}
+.transport { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; padding: 11px; border-top: 1px solid var(--border); }
+.transport .button, .transport button { font-size: 11px; }
+.seek-wrap { flex: 1 1 100px; min-width: 70px; }
+input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer; }
+.time { color: var(--muted); font-size: 10px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+.sidebar { display: flex; flex-direction: column; gap: 13px; }
+.settings-section { padding: 15px; }
+.settings-section h2 { margin-bottom: 15px; }
+.upload-button { display: flex; width: 100%; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+.dropzone { margin-top: 9px; padding: 13px 8px; border: 1px dashed #48484f; border-radius: 5px; color: var(--muted); font-size: 10px; text-align: center; }
+.dropzone.drag { border-color: var(--accent); color: var(--text); }
+.hint { color: var(--muted); font-size: 10px; line-height: 1.6; margin: 10px 0 0; }
+.field { margin-bottom: 16px; }
+.field-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; font-size: 11px; }
+.field-heading output { color: var(--green); font-size: 10px; }
+.field-label { display: block; font-size: 11px; margin-bottom: 8px; }
+select { width: 100%; padding: 10px; background: #0b0b0c; color: var(--text); border: 1px solid var(--border); border-radius: 5px; }
+.toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 13px 0; font-size: 11px; }
+.toggle-row input { accent-color: var(--accent); width: 15px; height: 15px; }
+.full-width { width: 100%; }
+.footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-top: 14px; color: #777780; font-size: 9px; }
+.hidden-media { position: fixed; left: -10000px; top: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.toast { display: none; position: fixed; z-index: 5; bottom: 16px; left: 50%; transform: translateX(-50%); max-width: calc(100vw - 24px); padding: 10px 13px; border: 1px solid var(--border); border-radius: 5px; background: #f2f2f3; color: #111; font-size: 11px; font-weight: 800; }
+
+@media (max-width: 900px) {
+  .workspace { grid-template-columns: minmax(0, 1fr); }
+  .sidebar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .monitor-panel { min-width: 0; }
+  .stage { min-height: 330px; }
+}
+@media (max-width: 560px) {
+  .shell { padding: 14px 9px 22px; }
+  .site-header { align-items: flex-start; gap: 10px; }
+  .brand-mark { flex-basis: 38px; height: 38px; }
+  .privacy-tag { display: none; }
+  .sidebar { display: flex; }
+  .stage { min-height: 260px; padding: 7px; }
+  .panel-heading { padding: 10px; }
+  .transport { gap: 5px; }
+  .transport button { padding: 9px 8px; }
+}
