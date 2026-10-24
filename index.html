@@ -4,110 +4,286 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#111111">
+  <meta name="description" content="Convert images and videos into colored ASCII art and export animated GIFs.">
   <title>ASCII Motion Lab</title>
   <link rel="stylesheet" href="css/style.css">
   <script src="js/app.js" defer></script>
 </head>
+
 <body>
   <main class="shell">
+
     <header class="site-header">
       <div class="brand-mark" aria-hidden="true">A/</div>
+
       <div class="brand-copy">
         <p class="eyebrow">VISUAL SIGNAL CONVERTER / 001</p>
         <h1>ASCII MOTION LAB</h1>
-        <p class="subtitle">Turn images and moving footage into living text.</p>
+        <p class="subtitle">
+          Turn images and moving footage into living text.
+        </p>
       </div>
+
       <span class="privacy-tag">LOCAL PROCESSING</span>
     </header>
 
     <div class="workspace">
+
       <section class="panel monitor-panel" aria-label="ASCII output monitor">
+
         <div class="panel-heading">
           <h2>Output monitor</h2>
           <span id="status" class="status">AWAITING INPUT</span>
         </div>
+
         <div id="stage" class="stage">
+
           <div id="placeholder" class="placeholder">
             <div class="placeholder-art" aria-hidden="true">░▒▓█</div>
             <strong>Drop a file. Watch it transform.</strong>
-            <p>Upload an image or video to begin. Everything runs in your browser.</p>
+            <p>
+              Upload an image or video to begin.
+              Everything runs in your browser.
+            </p>
           </div>
+
           <pre id="asciiOutput" aria-label="ASCII output"></pre>
+
         </div>
+
         <div class="transport">
-          <button id="playBtn" class="button primary" disabled>▶ Play</button>
-          <button id="stopBtn" class="button" disabled>■ Stop</button>
+
+          <button id="playBtn" class="button primary" disabled>
+            ▶ Play
+          </button>
+
+          <button id="stopBtn" class="button" disabled>
+            ■ Stop
+          </button>
+
           <div class="seek-wrap">
-            <input id="seek" type="range" min="0" max="1000" value="0" disabled aria-label="Video position">
+            <input
+              id="seek"
+              type="range"
+              min="0"
+              max="1000"
+              value="0"
+              disabled
+              aria-label="Video position"
+            >
           </div>
+
           <span id="time" class="time">00:00 / 00:00</span>
-          <button id="downloadBtn" class="button" disabled>Export .TXT</button>
+
+          <button id="downloadBtn" class="button" disabled>
+            Export .TXT
+          </button>
+
+          <button id="gifBtn" class="button primary" disabled>
+            Export GIF
+          </button>
+
         </div>
       </section>
 
       <aside class="sidebar">
+
+        <!-- SOURCE -->
         <section class="panel">
           <div class="settings-section">
+
             <h2>01 / Source</h2>
-            <label for="fileInput" class="button primary upload-button">＋ Choose image / video</label>
-            <input id="fileInput" class="visually-hidden" type="file" accept="image/*,video/*">
-            <div id="dropzone" class="dropzone">or drag and drop a file here</div>
-            <p class="hint">Common browser image and video formats are supported. Large videos may take a moment to process.</p>
+
+            <label
+              for="fileInput"
+              class="button primary upload-button"
+            >
+              ＋ Choose image / video
+            </label>
+
+            <input
+              id="fileInput"
+              class="visually-hidden"
+              type="file"
+              accept="image/*,video/*"
+            >
+
+            <div id="dropzone" class="dropzone">
+              or drag and drop a file here
+            </div>
+
+            <p class="hint">
+              Common browser image and video formats are supported.
+              Large videos may take a moment to process.
+            </p>
+
           </div>
         </section>
 
+        <!-- RENDER CONTROLS -->
         <section class="panel">
           <div class="settings-section">
+
             <h2>02 / Render controls</h2>
+
             <div class="field">
-              <div class="field-heading"><label for="width">Character width</label><output id="widthValue">120 cols</output></div>
-              <input id="width" type="range" min="40" max="220" value="120" step="10">
+              <div class="field-heading">
+                <label for="width">Character width</label>
+                <output id="widthValue">120 cols</output>
+              </div>
+
+              <input
+                id="width"
+                type="range"
+                min="40"
+                max="220"
+                value="120"
+                step="10"
+              >
             </div>
+
             <div class="field">
-              <div class="field-heading"><label for="brightness">Brightness</label><output id="brightnessValue">0</output></div>
-              <input id="brightness" type="range" min="-100" max="100" value="0">
+              <div class="field-heading">
+                <label for="brightness">Brightness</label>
+                <output id="brightnessValue">0</output>
+              </div>
+
+              <input
+                id="brightness"
+                type="range"
+                min="-100"
+                max="100"
+                value="0"
+              >
             </div>
+
             <div class="field">
-              <div class="field-heading"><label for="contrast">Contrast</label><output id="contrastValue">1.0×</output></div>
-              <input id="contrast" type="range" min="50" max="200" value="100">
+              <div class="field-heading">
+                <label for="contrast">Contrast</label>
+                <output id="contrastValue">1.0×</output>
+              </div>
+
+              <input
+                id="contrast"
+                type="range"
+                min="50"
+                max="200"
+                value="100"
+              >
             </div>
+
             <div class="field">
-              <label for="charset" class="field-label">Character set</label>
+              <label for="charset" class="field-label">
+                Character set
+              </label>
+
               <select id="charset">
-                <option value=" .:-=+*#%@">Standard · .:-=+*#%@</option>
-                <option value=" .'`^,:;Il!i~+_-?][}{1)(|\\/*tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$">Detailed</option>
-                <option value=" ░▒▓█">Blocks · ░▒▓█</option>
-                <option value=" 01">Binary · 01</option>
-                <option value=" .oO@">Minimal · .oO@</option>
-                <option value="@%#*+=-:. ">Reverse</option>
+                <option value=" .:-=+*#%@">
+                  Standard · .:-=+*#%@
+                </option>
+
+                <option value=" .'`^,:;Il!i~+_-?][}{1)(|\/*tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$">
+                  Detailed
+                </option>
+
+                <option value=" ░▒▓█">
+                  Blocks · ░▒▓█
+                </option>
+
+                <option value=" 01">
+                  Binary · 01
+                </option>
+
+                <option value=" .oO@">
+                  Minimal · .oO@
+                </option>
+
+                <option value="@%#*+=-:. ">
+                  Reverse
+                </option>
               </select>
             </div>
-            <label class="toggle-row"><span>Invert luminance</span><input id="invert" type="checkbox"></label>
-            <label class="toggle-row"><span>Color characters</span><input id="color" type="checkbox" checked></label>
-            <label class="toggle-row"><span>Auto-play videos</span><input id="autoplay" type="checkbox" checked></label>
-            <p class="hint">Colored ASCII samples the source image's pixel color for each character.</p>
+
+            <label class="toggle-row">
+              <span>Invert luminance</span>
+              <input id="invert" type="checkbox">
+            </label>
+
+            <label class="toggle-row">
+              <span>Color characters</span>
+              <input id="color" type="checkbox" checked>
+            </label>
+
+            <label class="toggle-row">
+              <span>Auto-play videos</span>
+              <input id="autoplay" type="checkbox" checked>
+            </label>
+
+            <p class="hint">
+              Colored ASCII samples the source image's pixel color
+              for each character.
+            </p>
+
           </div>
         </section>
 
+        <!-- OUTPUT -->
         <section class="panel">
           <div class="settings-section">
+
             <h2>03 / Output</h2>
-            <button id="snapshotBtn" class="button full-width" disabled>Capture current frame</button>
-            <p class="hint">Exports save the current ASCII frame as plain text. Color is shown in the live preview.</p>
+
+            <button
+              id="snapshotBtn"
+              class="button full-width"
+              disabled
+            >
+              Capture current frame
+            </button>
+
+            <p class="hint">
+              Export the current ASCII frame as a text file,
+              or turn a video into an animated GIF.
+
+              GIF export supports up to 10 seconds at 8 FPS.
+              Longer videos are trimmed to the first 10 seconds.
+            </p>
+
           </div>
         </section>
+
       </aside>
     </div>
 
     <footer class="footer">
       <span>ASCII MOTION LAB / CLIENT-SIDE PROCESSING</span>
-      <span>STATIC HOSTING READY · NO DEPENDENCIES</span>
+      <span>STATIC HOSTING READY · LOCAL GIF ENCODER</span>
     </footer>
+
   </main>
 
-  <video id="video" class="hidden-media" playsinline preload="metadata"></video>
-  <img id="image" class="hidden-media" alt="">
+  <!-- Hidden source elements used by the converter -->
+  <video
+    id="video"
+    class="hidden-media"
+    playsinline
+    preload="metadata"
+  ></video>
+
+  <img
+    id="image"
+    class="hidden-media"
+    alt=""
+  >
+
   <canvas id="canvas" hidden></canvas>
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <div
+    id="toast"
+    class="toast"
+    role="status"
+    aria-live="polite"
+  ></div>
+
 </body>
 </html>
