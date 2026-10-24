@@ -603,125 +603,139 @@
   }
 
   async function exportGif() {
-    if (
-      mediaType !== "video" ||
-      !Number.isFinite(video.duration) ||
-      video.duration <= 0
+  if (
+    mediaType !== "video" ||
+    !Number.isFinite(video.duration) ||
+    video.duration <= 0
+  ) {
+    toast("Load a video first.");
+    return;
+  }
+
+  const wasPlaying = !video.paused;
+  const originalTime = video.currentTime;
+  const duration = Math.min(video.duration, 10);
+  const fps = 8;
+  const interval = 1 / fps;
+  const frames = [];
+
+  let gifWidth = 0;
+  let gifHeight = 0;
+  let nextCapture = 0;
+
+  gifBtn.disabled = true;
+  playBtn.disabled = true;
+  stopBtn.disabled = true;
+
+  video.pause();
+  stopLoop();
+
+  try {
+    status.textContent = "PREPARING GIF…";
+
+    // Start from the beginning, without waiting for a seeked event.
+    video.currentTime = 0;
+    await video.play();
+
+    // Prevent the normal ASCII preview loop from competing with export.
+    stopLoop();
+
+    // Capture the first frame immediately.
+    const firstFrame = makeAsciiGifFrame();
+    frames.push(firstFrame.pixels);
+    gifWidth = firstFrame.width;
+    gifHeight = firstFrame.height;
+    nextCapture = interval;
+
+    status.textContent = "RECORDING ASCII FRAMES…";
+
+    // Capture frames sequentially while the video plays.
+    // No repeated video.currentTime seeking is performed.
+    while (
+      video.currentTime < duration &&
+      !video.ended
     ) {
-      return;
+      await new Promise(resolve => {
+        requestAnimationFrame(() => resolve());
+      });
+
+      if (video.currentTime >= nextCapture) {
+        const frame = makeAsciiGifFrame();
+
+        frames.push(frame.pixels);
+
+        // Avoid repeatedly capturing the same moment if rendering
+        // takes longer than expected on the device.
+        nextCapture = video.currentTime + interval;
+
+        status.textContent =
+          `RECORDING ASCII FRAMES… ${video.currentTime.toFixed(1)}s`;
+      }
     }
-
-    const wasPlaying = !video.paused;
-    const originalTime = video.currentTime;
-    const duration = Math.min(video.duration, 10);
-    const fps = 8;
-    const frameCount = Math.max(2, Math.ceil(duration * fps));
-    const frames = [];
-
-    gifBtn.disabled = true;
-    playBtn.disabled = true;
-    stopBtn.disabled = true;
-
-    const priorStatus = status.textContent;
 
     video.pause();
     stopLoop();
 
+    if (frames.length < 2) {
+      throw new Error(
+        "Not enough frames were captured. Try another video."
+      );
+    }
+
+    status.textContent = "ENCODING GIF…";
+
+    const blob = encodeGif(
+      frames,
+      gifWidth,
+      gifHeight,
+      Math.round(100 / fps)
+    );
+
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+
+    anchor.href = url;
+    anchor.download = `${currentName}-ascii.gif`;
+
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+
+    status.textContent = "GIF EXPORTED";
+    toast(
+      `GIF exported! ${frames.length} frames captured.`
+    );
+  } catch (error) {
+    console.error("GIF export error:", error);
+
+    status.textContent = "GIF EXPORT FAILED";
+    toast(error.message || "GIF export failed.");
+  } finally {
+    video.pause();
+    stopLoop();
+
+    // Restore the previous position without waiting for a seek event.
     try {
-      for (let i = 0; i < frameCount; i++) {
-        const time = Math.min(
-          Math.max(0, duration - 0.001),
-          i / fps
-        );
-
-        await seekVideoTo(time);
-        const frame = makeAsciiGifFrame();
-
-        frames.push(frame.pixels);
-        status.textContent = `BUILDING GIF · ${i + 1}/${frameCount}`;
-      }
-
-      const gifFontSize = Math.max(
-        4,
-        Math.min(6, 480 / Number(widthInput.value))
+      video.currentTime = Math.min(
+        originalTime,
+        Math.max(0, video.duration - 0.05)
       );
+    } catch {}
 
-      const width = Math.max(
-        1,
-        Math.round(Number(widthInput.value) * gifFontSize)
-      );
+    gifBtn.disabled = false;
+    playBtn.disabled = false;
+    stopBtn.disabled = false;
 
-      const height = Math.max(
-        1,
-        Math.round(
-          Math.max(
-            1,
-            Number(widthInput.value) *
-            video.videoHeight / video.videoWidth * 0.48
-          ) * gifFontSize
-        )
-      );
-
-      const blob = encodeGif(
-        frames,
-        width,
-        height,
-        Math.round(100 / fps)
-      );
-
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-
-      anchor.href = url;
-      anchor.download = `${currentName}-ascii.gif`;
-
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-
-      setTimeout(() => URL.revokeObjectURL(url), 1500);
-
-      toast(
-        video.duration > 10
-          ? "GIF exported (first 10 seconds at 8 FPS)."
-          : "Animated ASCII GIF exported."
-      );
-
-      status.textContent = "GIF EXPORTED";
-    } catch (error) {
-      console.error(error);
-      toast(
-        error.message ||
-        "GIF export failed. Try a shorter video or lower character width."
-      );
-      status.textContent = "GIF EXPORT FAILED";
-    } finally {
-      try {
-        await seekVideoTo(
-          Math.min(originalTime, Math.max(0, video.duration - 0.001))
-        );
-      } catch {}
-
-      if (wasPlaying) {
-        try {
-          await video.play();
-        } catch {}
-      } else {
-        renderSource();
-      }
-
-      gifBtn.disabled = false;
-      playBtn.disabled = false;
-      stopBtn.disabled = false;
-
-      if (
-        status.textContent !== "GIF EXPORTED" &&
-        status.textContent !== "GIF EXPORT FAILED"
-      ) {
-        status.textContent = priorStatus;
-      }
+    if (wasPlaying) {
+      video.play().catch(() => {});
+    } else {
+      renderSource();
+      updateTime();
     }
   }
+}
 
   function rerender() {
     renderSource();
