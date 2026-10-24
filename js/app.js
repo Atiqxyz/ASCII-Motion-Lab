@@ -340,7 +340,7 @@
     const columns = Number(widthInput.value);
     const rows = Math.max(
       1,
-      Math.round(columns * source.height / source.width * 0.48)
+      Math.round(columns * source.height / source.width * 0.9)
     );
 
     canvas.width = columns;
