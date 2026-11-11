@@ -6,14 +6,14 @@
       const gl=canvas.getContext("webgl2",{alpha:false,antialias:false,preserveDrawingBuffer:false,powerPreference:"high-performance"});
       if(!gl) throw new Error("WebGL2 is unavailable");
       this.gl=gl;
-      const vs=\`#version 300 es
+      const vs=`#version 300 es
       out vec2 vUv;
       void main(){
         vec2 p=gl_VertexID==0?vec2(-1.0,-1.0):(gl_VertexID==1?vec2(3.0,-1.0):vec2(-1.0,3.0));
         vUv=p*0.5+0.5;
         gl_Position=vec4(p,0.0,1.0);
-      }\`;
-      const fs=\`#version 300 es
+      }`;
+      const fs=`#version 300 es
       precision highp float;
       in vec2 vUv; out vec4 outColor;
       uniform sampler2D uSource; uniform sampler2D uAtlas;
@@ -46,7 +46,7 @@
         float ink=texture(uAtlas,atlasUv).r;
         vec3 inkColor=uColor?boost(src):uFg;
         outColor=vec4(mix(uBg,inkColor,ink),1.0);
-      }\`;
+      }`;
       const compile=(type,src)=>{const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s;};
       const p=gl.createProgram();gl.attachShader(p,compile(gl.VERTEX_SHADER,vs));gl.attachShader(p,compile(gl.FRAGMENT_SHADER,fs));gl.linkProgram(p);
       if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(p));
