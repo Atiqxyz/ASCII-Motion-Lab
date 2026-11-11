@@ -7,6 +7,7 @@
   <meta name="description" content="Convert images and videos into colored ASCII art and export animated GIFs.">
   <title>ASCII Motion Lab</title>
   <link rel="stylesheet" href="css/style.css">
+  <script src="js/gpu-renderer.js" defer></script>
   <script src="js/app.js" defer></script>
 </head>
 
@@ -47,7 +48,8 @@
             </p>
           </div>
 
-          <pre id="asciiOutput" aria-label="ASCII output"></pre>
+          <canvas id="asciiCanvas" aria-label="GPU-rendered ASCII output"></canvas>
+          <pre id="asciiOutput" aria-label="ASCII text export source"></pre>
 
         </div>
 
