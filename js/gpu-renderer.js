@@ -54,7 +54,7 @@
       this.sourceTex=gl.createTexture();this.atlasTex=gl.createTexture();
       this.bindTexture(this.sourceTex,true);this.bindTexture(this.atlasTex,false);
       gl.uniform1i(this.loc.uSource,0);gl.uniform1i(this.loc.uAtlas,1);
-      this.atlasKey="";
+      this.atlasKey="";this.sourceWidth=0;this.sourceHeight=0;
       this.vertexArray=gl.createVertexArray();gl.bindVertexArray(this.vertexArray);
       gl.disable(gl.DEPTH_TEST);gl.disable(gl.BLEND);
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
@@ -89,7 +89,14 @@
       const chars=settings.chars||" .:-=+*#%@";
       this.buildAtlas(chars);
       gl.activeTexture(gl.TEXTURE0);this.bindTexture(this.sourceTex,true);
-      gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,source);
+      const sw=source.videoWidth||source.naturalWidth||source.width;
+      const sh=source.videoHeight||source.naturalHeight||source.height;
+      if(sw!==this.sourceWidth||sh!==this.sourceHeight){
+        gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,source);
+        this.sourceWidth=sw;this.sourceHeight=sh;
+      }else{
+        gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,gl.RGBA,gl.UNSIGNED_BYTE,source);
+      }
       gl.generateMipmap(gl.TEXTURE_2D);
       gl.useProgram(this.program);gl.bindVertexArray(this.vertexArray);
       const u=this.loc;
