@@ -329,103 +329,78 @@
     toast("ASCII text exported.");
   }
 
-  // Create one colored ASCII frame for the GIF.
+  // GIF frames are always rendered onto a fixed 16:9 canvas.
   function makeAsciiGifFrame() {
     const source = getSource();
-
-    if (!source) {
-      throw new Error("No readable video frame is available.");
-    }
-
+    if (!source) throw new Error("No readable video frame is available.");
     const columns = Number(widthInput.value);
-    const rows = Math.max(
-      1,
-      Math.round(columns * source.height / source.width * 0.9)
-    );
+    const rows = Math.max(1, Math.round(columns * 0.6 * 9 / 16));
+    const sxCount = 3, syCount = 5;
+    const sampleWidth = columns * sxCount, sampleHeight = rows * syCount;
+    canvas.width = sampleWidth;
+    canvas.height = sampleHeight;
+    ctx.fillStyle = "#080809";
+    ctx.fillRect(0, 0, sampleWidth, sampleHeight);
 
-    canvas.width = columns;
-    canvas.height = rows;
-    ctx.drawImage(source.element, 0, 0, columns, rows);
+    const sourceAspect = source.width / source.height;
+    const targetAspect = sampleWidth / sampleHeight;
+    let drawWidth = sampleWidth, drawHeight = sampleHeight, offsetX = 0, offsetY = 0;
+    if (sourceAspect > targetAspect) {
+      drawHeight = sampleWidth / sourceAspect;
+      offsetY = (sampleHeight - drawHeight) / 2;
+    } else {
+      drawWidth = sampleHeight * sourceAspect;
+      offsetX = (sampleWidth - drawWidth) / 2;
+    }
+    ctx.drawImage(source.element, offsetX, offsetY, drawWidth, drawHeight);
 
-    const pixels = ctx.getImageData(0, 0, columns, rows).data;
+    const pixels = ctx.getImageData(0, 0, sampleWidth, sampleHeight).data;
     const chars = charsetInput.value || " .:-=+*#%@";
     const brightness = Number(brightnessInput.value);
     const contrast = Number(contrastInput.value) / 100;
     const invert = invertInput.checked;
     const useColor = colorInput.checked;
-
-    const fontSize = Math.max(4, Math.min(6, 480 / columns));
+    const outputWidth = 960, outputHeight = 540;
+    const cellWidth = outputWidth / columns, cellHeight = outputHeight / rows;
+    const fontSize = Math.min(cellHeight, cellWidth / 0.6);
     const outCanvas = document.createElement("canvas");
-
-    outCanvas.width = Math.max(1, Math.round(columns * fontSize));
-    outCanvas.height = Math.max(1, Math.round(rows * fontSize));
-
-    const outCtx = outCanvas.getContext("2d", {
-      willReadFrequently: true
-    });
-
+    outCanvas.width = outputWidth;
+    outCanvas.height = outputHeight;
+    const outCtx = outCanvas.getContext("2d", { willReadFrequently: true });
     outCtx.fillStyle = "#080809";
-    outCtx.fillRect(0, 0, outCanvas.width, outCanvas.height);
-    outCtx.font = `${fontSize}px "Courier New", monospace`;
+    outCtx.fillRect(0, 0, outputWidth, outputHeight);
+    outCtx.font = fontSize + 'px "Courier New", monospace';
     outCtx.textBaseline = "top";
     outCtx.textAlign = "left";
 
     for (let y = 0; y < rows; y++) {
       for (let x = 0; x < columns; x++) {
-        const i = (y * columns + x) * 4;
-        const r = pixels[i];
-        const g = pixels[i + 1];
-        const b = pixels[i + 2];
-        const alpha = pixels[i + 3] / 255;
-
-        let luminance =
-          (0.2126 * r + 0.7152 * g + 0.0722 * b) * alpha +
-          255 * (1 - alpha);
-
-        luminance = Math.max(
-          0,
-          Math.min(255, (luminance - 127.5) * contrast + 127.5 + brightness)
-        );
-
-        if (invert) luminance = 255 - luminance;
-
-        const charIndex = Math.max(
-          0,
-          Math.min(
-            chars.length - 1,
-            Math.round(luminance / 255 * (chars.length - 1))
-          )
-        );
-
+        let r = 0, g = 0, b = 0, lum = 0;
+        for (let sy = 0; sy < syCount; sy++) {
+          for (let sx = 0; sx < sxCount; sx++) {
+            const i = (((y * syCount + sy) * sampleWidth) + x * sxCount + sx) * 4;
+            r += pixels[i]; g += pixels[i + 1]; b += pixels[i + 2];
+            lum += 0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2];
+          }
+        }
+        const count = sxCount * syCount;
+        r = Math.round(r / count); g = Math.round(g / count); b = Math.round(b / count);
+        lum = Math.max(0, Math.min(255, (lum / count - 127.5) * contrast + 127.5 + brightness));
+        if (invert) lum = 255 - lum;
+        const charIndex = Math.max(0, Math.min(chars.length - 1,
+          Math.round(lum / 255 * (chars.length - 1))));
         const character = chars[charIndex] ?? " ";
-
-        outCtx.fillStyle = useColor
-          ? `rgb(${r},${g},${b})`
-          : "#f2f2f3";
-
-        outCtx.fillText(character, x * fontSize, y * fontSize);
+        outCtx.fillStyle = useColor ? "rgb(" + r + "," + g + "," + b + ")" : "#f2f2f3";
+        outCtx.fillText(character, x * cellWidth, y * cellHeight);
       }
     }
 
-    const rgba = outCtx.getImageData(
-      0, 0, outCanvas.width, outCanvas.height
-    ).data;
-
-    // Convert each pixel to a compact RGB332 palette index.
-    const indexed = new Uint8Array(outCanvas.width * outCanvas.height);
-
+    const rgba = outCtx.getImageData(0, 0, outputWidth, outputHeight).data;
+    const indexed = new Uint8Array(outputWidth * outputHeight);
     for (let i = 0, j = 0; i < rgba.length; i += 4, j++) {
-      indexed[j] =
-        ((rgba[i] >> 5) << 5) |
-        ((rgba[i + 1] >> 5) << 2) |
-        (rgba[i + 2] >> 6);
+      indexed[j] = ((rgba[i] >> 5) << 5) | ((rgba[i + 1] >> 5) << 2) | (rgba[i + 2] >> 6);
     }
-
-    return {
-      width: outCanvas.width,
-      height: outCanvas.height,
-      pixels: indexed
-    };
+    return { width: outputWidth, height: outputHeight, pixels: indexed };
   }
 
   // Dependency-free GIF89a encoder.
