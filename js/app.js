@@ -10,6 +10,10 @@
   const video = $("video");
   const image = $("image");
   const canvas = $("canvas");
+  const previewCanvas = $("asciiCanvas");
+  let gpuRenderer = null;
+  try { gpuRenderer = new window.AsciiGpuRenderer(previewCanvas); }
+  catch (error) { console.warn("GPU renderer unavailable; using text fallback.", error); }
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   const playBtn = $("playBtn");
   const stopBtn = $("stopBtn");
@@ -193,6 +197,29 @@
     return null;
   }
 
+  function renderGpu() {
+    if (!gpuRenderer) return;
+    const source = getSource();
+    if (!source) return;
+    const columns = Number(widthInput.value);
+    const rows = Math.max(1, Math.round(columns * source.height / source.width * 0.48));
+    try {
+      gpuRenderer.draw(source.element, columns, rows, {
+        chars: charsetInput.value || " .:-=+*#%@",
+        brightness: brightnessInput.value,
+        contrast: contrastInput.value,
+        invert: invertInput.checked,
+        color: colorInput.checked
+      });
+      previewCanvas.style.display = "block";
+      output.style.display = "none";
+    } catch (error) {
+      console.error("GPU render failed:", error);
+      previewCanvas.style.display = "none";
+      output.style.display = "block";
+    }
+  }
+
   function escapeHtml(value) {
     return value
       .replace(/&/g, "&amp;")
@@ -317,8 +344,9 @@
       output.style.whiteSpace = "pre";
 
       status.textContent = mediaType === "video"
-        ? "LIVE ASCII · " + columns + " COLS · " + rows + " ROWS"
-        : "CONVERTED · " + columns + " COLS · " + rows + " ROWS";
+        ? "GPU ASCII · " + columns + " COLS · " + rows + " ROWS"
+        : "GPU CONVERTED · " + columns + " COLS · " + rows + " ROWS";
+      renderGpu();
     } catch (error) {
       console.error(error);
       status.textContent = "RENDER ERROR";
@@ -340,7 +368,7 @@
           return;
         }
         animationId = video.requestVideoFrameCallback(onVideoFrame);
-        renderSource();
+        renderGpu();
         if (now - lastTimeLabelUpdate >= 250) {
           lastTimeLabelUpdate = now;
           updateTime();
@@ -359,7 +387,7 @@
       animationId = requestAnimationFrame(tick);
       if (video.currentTime !== lastVideoTime) {
         lastVideoTime = video.currentTime;
-        renderSource();
+        renderGpu();
       }
       if (now - lastTimeLabelUpdate >= 250) {
         lastTimeLabelUpdate = now;
@@ -897,11 +925,12 @@
     renderSource();
   });
 
-  downloadBtn.addEventListener("click", () => saveText("ascii"));
+  downloadBtn.addEventListener("click", () => { renderSource(); saveText("ascii"); });
 
   gifBtn.addEventListener("click", exportGif);
 
   snapshotBtn.addEventListener("click", () => {
+    renderSource();
     const suffix = mediaType === "video"
       ? `frame-${Math.round(video.currentTime * 100) / 100}s`
       : "image";
