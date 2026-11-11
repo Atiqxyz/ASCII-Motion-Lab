@@ -30,12 +30,12 @@
   let objectUrl = null;
   let mediaType = null;
   let animationId = null;
-  let lastFrameTime = 0;
+  let lastTimeLabelUpdate = 0;
+  let lastVideoTime = -1;
   let lastText = "";
   let currentName = "ascii-frame";
   let isRendering = false;
   let lastSeekUpdate = 0;
-  const frameInterval = 1000 / 18;
 
   function toast(message) {
     const el = $("toast");
@@ -84,7 +84,14 @@
   }
 
   function stopLoop() {
-    if (animationId !== null) cancelAnimationFrame(animationId);
+    if (animationId !== null) {
+      if (typeof video.cancelVideoFrameCallback === "function" &&
+          typeof video.requestVideoFrameCallback === "function") {
+        video.cancelVideoFrameCallback(animationId);
+      } else {
+        cancelAnimationFrame(animationId);
+      }
+    }
     animationId = null;
   }
 
@@ -195,6 +202,18 @@
       .replace(/'/g, "&#39;");
   }
 
+  function boostColor(r, g, b) {
+    // Lift midtones and increase saturation without clipping every highlight.
+    const gray = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    const lift = 1.08;
+    const saturation = 1.32;
+    return [
+      Math.max(0, Math.min(255, Math.round((gray + (r - gray) * saturation) * lift))),
+      Math.max(0, Math.min(255, Math.round((gray + (g - gray) * saturation) * lift))),
+      Math.max(0, Math.min(255, Math.round((gray + (b - gray) * saturation) * lift)))
+    ];
+  }
+
   function renderSource() {
     if (isRendering) return;
 
@@ -210,8 +229,12 @@
         Math.round(columns * source.height / source.width * 0.48)
       );
 
-      canvas.width = columns;
-      canvas.height = rows;
+      // Resizing a canvas clears it and reallocates its backing store.
+      // Only resize when dimensions actually change.
+      if (canvas.width !== columns || canvas.height !== rows) {
+        canvas.width = columns;
+        canvas.height = rows;
+      }
       ctx.drawImage(source.element, 0, 0, columns, rows);
 
       const pixels = ctx.getImageData(0, 0, columns, rows).data;
@@ -224,8 +247,10 @@
       const plainLines = [];
 
       for (let y = 0; y < rows; y++) {
-        const lineParts = [];
         let plainLine = "";
+        let lineHtml = "";
+        let activeColor = "";
+        let activeRun = "";
 
         for (let x = 0; x < columns; x++) {
           const index = (y * columns + x) * 4;
@@ -247,40 +272,53 @@
 
           const charIndex = Math.max(
             0,
-            Math.min(
-              chars.length - 1,
-              Math.round(luminance / 255 * (chars.length - 1))
-            )
+            Math.min(chars.length - 1,
+              Math.round(luminance / 255 * (chars.length - 1)))
           );
-
           const character = chars[charIndex] ?? " ";
           plainLine += character;
 
           if (useColor) {
-            lineParts.push(
-              `<span style="color:rgb(${r},${g},${b})">${escapeHtml(character)}</span>`
-            );
+            const boosted = boostColor(r, g, b);
+            // Quantized color runs mean far fewer DOM spans per frame.
+            const colorKey = boosted.map(v => Math.round(v / 17) * 17).join(",");
+            if (colorKey !== activeColor) {
+              if (activeRun) {
+                lineHtml += '<span style="color:rgb(' + activeColor + ')">' +
+                  escapeHtml(activeRun) + '</span>';
+              }
+              activeColor = colorKey;
+              activeRun = character;
+            } else {
+              activeRun += character;
+            }
           } else {
-            lineParts.push(escapeHtml(character));
+            activeRun += character;
           }
         }
 
+        if (activeRun) {
+          lineHtml += useColor
+            ? '<span style="color:rgb(' + activeColor + ')">' + escapeHtml(activeRun) + '</span>'
+            : escapeHtml(activeRun);
+        }
+
         plainLines.push(plainLine);
-        outputParts.push(lineParts.join(""));
+        outputParts.push(lineHtml);
       }
 
       lastText = plainLines.join("\n") + "\n";
-      output.innerHTML = outputParts.join("\n");
+      const nextHtml = outputParts.join("\n");
+      if (output.innerHTML !== nextHtml) output.innerHTML = nextHtml;
 
-      output.style.fontSize =
-        `${Math.max(4, Math.min(9, 840 / columns))}px`;
-      output.style.lineHeight =
-        `${Math.max(4, Math.min(9, 840 / columns))}px`;
+      const fontSize = Math.max(4, Math.min(9, 840 / columns));
+      output.style.fontSize = fontSize + "px";
+      output.style.lineHeight = fontSize + "px";
       output.style.whiteSpace = "pre";
 
       status.textContent = mediaType === "video"
-        ? `LIVE ASCII · ${columns} COLS · ${rows} ROWS`
-        : `CONVERTED · ${columns} COLS · ${rows} ROWS`;
+        ? "LIVE ASCII · " + columns + " COLS · " + rows + " ROWS"
+        : "CONVERTED · " + columns + " COLS · " + rows + " ROWS";
     } catch (error) {
       console.error(error);
       status.textContent = "RENDER ERROR";
@@ -293,18 +331,41 @@
   function startLoop() {
     stopLoop();
 
-    const tick = now => {
-      animationId = requestAnimationFrame(tick);
-
-      if (now - lastFrameTime < frameInterval) return;
-      lastFrameTime = now;
-
-      if (mediaType === "video" && !video.paused && !video.ended) {
+    // Use the browser's decoded-video-frame callback instead of an
+    // arbitrary 18 FPS timer. This follows the source video's cadence.
+    if (typeof video.requestVideoFrameCallback === "function") {
+      const onVideoFrame = now => {
+        if (video.paused || video.ended) {
+          animationId = null;
+          return;
+        }
+        animationId = video.requestVideoFrameCallback(onVideoFrame);
         renderSource();
+        if (now - lastTimeLabelUpdate >= 250) {
+          lastTimeLabelUpdate = now;
+          updateTime();
+        }
+      };
+      animationId = video.requestVideoFrameCallback(onVideoFrame);
+      return;
+    }
+
+    // Fallback for browsers without requestVideoFrameCallback.
+    const tick = now => {
+      if (video.paused || video.ended) {
+        animationId = null;
+        return;
+      }
+      animationId = requestAnimationFrame(tick);
+      if (video.currentTime !== lastVideoTime) {
+        lastVideoTime = video.currentTime;
+        renderSource();
+      }
+      if (now - lastTimeLabelUpdate >= 250) {
+        lastTimeLabelUpdate = now;
         updateTime();
       }
     };
-
     animationId = requestAnimationFrame(tick);
   }
 
@@ -385,6 +446,7 @@
         }
         const count = sxCount * syCount;
         r = Math.round(r / count); g = Math.round(g / count); b = Math.round(b / count);
+        [r, g, b] = boostColor(r, g, b);
         lum = Math.max(0, Math.min(255, (lum / count - 127.5) * contrast + 127.5 + brightness));
         if (invert) lum = 255 - lum;
         const charIndex = Math.max(0, Math.min(chars.length - 1,
