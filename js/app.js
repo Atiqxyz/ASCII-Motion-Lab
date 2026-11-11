@@ -344,8 +344,8 @@
       output.style.whiteSpace = "pre";
 
       status.textContent = mediaType === "video"
-        ? "GPU ASCII · " + columns + " COLS · " + rows + " ROWS"
-        : "GPU CONVERTED · " + columns + " COLS · " + rows + " ROWS";
+        ? (gpuRenderer ? "GPU ASCII · " : "LIVE ASCII · ") + columns + " COLS · " + rows + " ROWS"
+        : (gpuRenderer ? "GPU CONVERTED · " : "CONVERTED · ") + columns + " COLS · " + rows + " ROWS";
       renderGpu();
     } catch (error) {
       console.error(error);
