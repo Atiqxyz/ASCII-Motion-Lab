@@ -30,12 +30,11 @@
   let objectUrl = null;
   let mediaType = null;
   let animationId = null;
-  let lastFrameTime = 0;
+  let videoFrameCallbackId = null;
   let lastText = "";
   let currentName = "ascii-frame";
   let isRendering = false;
   let lastSeekUpdate = 0;
-  const frameInterval = 1000 / 18;
 
   function toast(message) {
     const el = $("toast");
@@ -86,6 +85,10 @@
   function stopLoop() {
     if (animationId !== null) cancelAnimationFrame(animationId);
     animationId = null;
+    if (videoFrameCallbackId !== null && typeof video.cancelVideoFrameCallback === "function") {
+      video.cancelVideoFrameCallback(videoFrameCallbackId);
+    }
+    videoFrameCallbackId = null;
   }
 
   function clearOldSource() {
@@ -210,8 +213,10 @@
         Math.round(columns * source.height / source.width * 0.48)
       );
 
-      canvas.width = columns;
-      canvas.height = rows;
+      if (canvas.width !== columns || canvas.height !== rows) {
+        canvas.width = columns;
+        canvas.height = rows;
+      }
       ctx.drawImage(source.element, 0, 0, columns, rows);
 
       const pixels = ctx.getImageData(0, 0, columns, rows).data;
@@ -220,11 +225,11 @@
       const contrast = Number(contrastInput.value) / 100;
       const invert = invertInput.checked;
       const useColor = colorInput.checked;
-      const outputParts = [];
-      const plainLines = [];
+      const outputLines = useColor ? new Array(rows) : null;
+      const plainLines = new Array(rows);
 
       for (let y = 0; y < rows; y++) {
-        const lineParts = [];
+        let lineParts = useColor ? "" : null;
         let plainLine = "";
 
         for (let x = 0; x < columns; x++) {
@@ -257,26 +262,28 @@
           plainLine += character;
 
           if (useColor) {
-            lineParts.push(
-              `<span style="color:rgb(${r},${g},${b})">${escapeHtml(character)}</span>`
-            );
-          } else {
-            lineParts.push(escapeHtml(character));
+            lineParts +=
+              `<span style="color:rgb(${r},${g},${b})">${escapeHtml(character)}</span>`;
           }
         }
 
-        plainLines.push(plainLine);
-        outputParts.push(lineParts.join(""));
+        plainLines[y] = plainLine;
+        if (useColor) outputLines[y] = lineParts;
       }
 
       lastText = plainLines.join("\n") + "\n";
-      output.innerHTML = outputParts.join("\n");
+      if (useColor) {
+        output.innerHTML = outputLines.join("\n");
+      } else {
+        output.textContent = lastText;
+      }
 
-      output.style.fontSize =
-        `${Math.max(4, Math.min(9, 840 / columns))}px`;
-      output.style.lineHeight =
-        `${Math.max(4, Math.min(9, 840 / columns))}px`;
-      output.style.whiteSpace = "pre";
+      const outputFontSize = `${Math.max(4, Math.min(9, 840 / columns))}px`;
+      if (output.style.fontSize !== outputFontSize) {
+        output.style.fontSize = outputFontSize;
+        output.style.lineHeight = outputFontSize;
+      }
+      if (output.style.whiteSpace !== "pre") output.style.whiteSpace = "pre";
 
       status.textContent = mediaType === "video"
         ? `LIVE ASCII · ${columns} COLS · ${rows} ROWS`
@@ -293,18 +300,30 @@
   function startLoop() {
     stopLoop();
 
-    const tick = now => {
-      animationId = requestAnimationFrame(tick);
-
-      if (now - lastFrameTime < frameInterval) return;
-      lastFrameTime = now;
-
-      if (mediaType === "video" && !video.paused && !video.ended) {
+    if (typeof video.requestVideoFrameCallback === "function") {
+      const onVideoFrame = () => {
+        if (mediaType !== "video" || video.paused || video.ended) {
+          videoFrameCallbackId = null;
+          return;
+        }
         renderSource();
         updateTime();
-      }
-    };
+        videoFrameCallbackId = video.requestVideoFrameCallback(onVideoFrame);
+      };
+      videoFrameCallbackId = video.requestVideoFrameCallback(onVideoFrame);
+      return;
+    }
 
+    // Uncapped display-refresh fallback for browsers without video-frame callbacks.
+    const tick = () => {
+      if (mediaType !== "video" || video.paused || video.ended) {
+        animationId = null;
+        return;
+      }
+      renderSource();
+      updateTime();
+      animationId = requestAnimationFrame(tick);
+    };
     animationId = requestAnimationFrame(tick);
   }
 
@@ -429,7 +448,7 @@
   }
 
   // Dependency-free GIF89a encoder.
-  function encodeGif(frames, width, height, delayCentiseconds) {
+  function encodeGif(frames, width, height, frameDelaysCentiseconds) {
     const bytes = [];
 
     const push = (...values) => bytes.push(...values);
@@ -543,10 +562,14 @@
       return new Uint8Array(out);
     };
 
-    for (const frame of frames) {
+    for (let frameIndex = 0; frameIndex < frames.length; frameIndex++) {
+      const frame = frames[frameIndex];
+      const delay = Array.isArray(frameDelaysCentiseconds)
+        ? frameDelaysCentiseconds[frameIndex] || 1
+        : frameDelaysCentiseconds;
       // Graphic Control Extension.
       push(0x21, 0xF9, 0x04, 0x00);
-      word(delayCentiseconds);
+      word(Math.max(1, Math.min(65535, delay)));
       push(0, 0);
 
       // Image descriptor.
@@ -615,13 +638,12 @@
   const wasPlaying = !video.paused;
   const originalTime = video.currentTime;
   const duration = Math.min(video.duration, 10);
-  const fps = 8;
-  const interval = 1 / fps;
   const frames = [];
+  const frameDelays = [];
 
   let gifWidth = 0;
   let gifHeight = 0;
-  let nextCapture = 0;
+  let previousMediaTime = null;
 
   gifBtn.disabled = true;
   playBtn.disabled = true;
@@ -640,38 +662,40 @@
     // Prevent the normal ASCII preview loop from competing with export.
     stopLoop();
 
-    // Capture the first frame immediately.
-    const firstFrame = makeAsciiGifFrame();
-    frames.push(firstFrame.pixels);
-    gifWidth = firstFrame.width;
-    gifHeight = firstFrame.height;
-    nextCapture = interval;
-
     status.textContent = "RECORDING ASCII FRAMES…";
 
-    // Capture frames sequentially while the video plays.
-    // No repeated video.currentTime seeking is performed.
-    while (
-      video.currentTime < duration &&
-      !video.ended
-    ) {
-      await new Promise(resolve => {
-        requestAnimationFrame(() => resolve());
-      });
-
-      if (video.currentTime >= nextCapture) {
-        const frame = makeAsciiGifFrame();
-
-        frames.push(frame.pixels);
-
-        // Avoid repeatedly capturing the same moment if rendering
-        // takes longer than expected on the device.
-        nextCapture = video.currentTime + interval;
-
-        status.textContent =
-          `RECORDING ASCII FRAMES… ${video.currentTime.toFixed(1)}s`;
+    // Capture every presented video frame, using its media timestamp.
+    const waitForPresentedFrame = () => new Promise(resolve => {
+      if (typeof video.requestVideoFrameCallback === "function") {
+        video.requestVideoFrameCallback((now, metadata) => resolve(metadata));
+      } else {
+        requestAnimationFrame(() => resolve({ mediaTime: video.currentTime }));
       }
+    });
+
+    while (!video.ended) {
+      const metadata = await waitForPresentedFrame();
+      const mediaTime = Number.isFinite(metadata.mediaTime)
+        ? metadata.mediaTime
+        : video.currentTime;
+
+      if (mediaTime >= duration) break;
+      if (previousMediaTime !== null && mediaTime <= previousMediaTime + 0.0001) continue;
+
+      const frame = makeAsciiGifFrame();
+      frames.push(frame.pixels);
+      if (gifWidth === 0) {
+        gifWidth = frame.width;
+        gifHeight = frame.height;
+      }
+      if (previousMediaTime !== null) {
+        frameDelays.push(Math.max(1, Math.round((mediaTime - previousMediaTime) * 100)));
+      }
+      previousMediaTime = mediaTime;
+      status.textContent = `RECORDING ASCII FRAMES… ${mediaTime.toFixed(1)}s · ${frames.length} FRAMES`;
     }
+
+    frameDelays.push(frameDelays.length ? frameDelays[frameDelays.length - 1] : 3);
 
     video.pause();
     stopLoop();
@@ -688,7 +712,7 @@
       frames,
       gifWidth,
       gifHeight,
-      Math.round(100 / fps)
+      frameDelays
     );
 
     const url = URL.createObjectURL(blob);
