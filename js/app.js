@@ -689,7 +689,7 @@
         gifHeight = frame.height;
       }
       if (previousMediaTime !== null) {
-        frameDelays.push(Math.max(1, Math.round((mediaTime - previousMediaTime) * 100)));
+        frameDelays.push(Math.max(1, Math.round(mediaTime * 100) - Math.round(previousMediaTime * 100)));
       }
       previousMediaTime = mediaTime;
       status.textContent = `RECORDING ASCII FRAMES… ${mediaTime.toFixed(1)}s · ${frames.length} FRAMES`;
