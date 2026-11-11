@@ -589,6 +589,7 @@
 
   const wasPlaying = !video.paused;
   const originalTime = video.currentTime;
+  const wasMuted = video.muted;
   const duration = Math.min(video.duration, 10);
   const fps = 8;
   const interval = 1 / fps;
@@ -603,6 +604,7 @@
   stopBtn.disabled = true;
 
   video.pause();
+  video.muted = true;
   stopLoop();
 
   try {
@@ -689,6 +691,7 @@
     toast(error.message || "GIF export failed.");
   } finally {
     video.pause();
+    video.muted = wasMuted;
     stopLoop();
 
     // Restore the previous position without waiting for a seek event.
