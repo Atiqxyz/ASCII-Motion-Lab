@@ -388,15 +388,25 @@
       throw new Error("No readable video frame is available.");
     }
 
-    const columns = Number(widthInput.value);
-    const rows = Math.max(
-      1,
-      Math.round(columns * source.height / source.width * 0.9)
-    );
+    // Fixed 16:9 export canvas: 160 × 54 glyph cells at 6 × 10 px.
+    // Contain-fit the source so it is never stretched or cropped.
+    const columns = 160;
+    const rows = 54;
 
     canvas.width = columns;
     canvas.height = rows;
-    ctx.drawImage(source.element, 0, 0, columns, rows);
+    ctx.fillStyle = "#080809";
+    ctx.fillRect(0, 0, columns, rows);
+    const scale = Math.min(columns / source.width, rows / source.height);
+    const drawWidth = source.width * scale;
+    const drawHeight = source.height * scale;
+    ctx.drawImage(
+      source.element,
+      (columns - drawWidth) / 2,
+      (rows - drawHeight) / 2,
+      drawWidth,
+      drawHeight
+    );
 
     const pixels = ctx.getImageData(0, 0, columns, rows).data;
     const chars = charsetInput.value || " .:-=+*#%@";
@@ -405,11 +415,11 @@
     const invert = invertInput.checked;
     const useColor = colorInput.checked;
 
-    const fontSize = Math.max(4, Math.min(6, 480 / columns));
+    const fontSize = 10;
     const outCanvas = document.createElement("canvas");
 
-    outCanvas.width = Math.max(1, Math.round(columns * fontSize));
-    outCanvas.height = Math.max(1, Math.round(rows * fontSize));
+    outCanvas.width = 960;
+    outCanvas.height = 540;
 
     const outCtx = outCanvas.getContext("2d", {
       willReadFrequently: true
@@ -457,7 +467,7 @@
           outCtx.fillStyle = "#f2f2f3";
         }
 
-        outCtx.fillText(character, x * fontSize, y * fontSize);
+        outCtx.fillText(character, x * 6, y * 10);
       }
     }
 
