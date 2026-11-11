@@ -3,7 +3,7 @@
   class AsciiGpuRenderer {
     constructor(canvas) {
       this.canvas=canvas;
-      const gl=canvas.getContext("webgl2",{alpha:false,antialias:false,preserveDrawingBuffer:true,powerPreference:"high-performance"});
+      const gl=canvas.getContext("webgl2",{alpha:false,antialias:false,preserveDrawingBuffer:false,powerPreference:"high-performance"});
       if(!gl) throw new Error("WebGL2 is unavailable");
       this.gl=gl;
       const vs=\`#version 300 es
@@ -41,7 +41,8 @@
         float index=floor(lum*(uRampLen-1.0)+0.5);
         float col=mod(index,uAtlasCols);
         float row=floor(index/uAtlasCols);
-        vec2 atlasUv=(vec2(col,row)+vec2(local.x,1.0-local.y))/vec2(uAtlasCols,uAtlasRows);
+        float atlasRow=uAtlasRows-1.0-row;
+        vec2 atlasUv=(vec2(col,atlasRow)+local)/vec2(uAtlasCols,uAtlasRows);
         float ink=texture(uAtlas,atlasUv).r;
         vec3 inkColor=uColor?boost(src):uFg;
         outColor=vec4(mix(uBg,inkColor,ink),1.0);
