@@ -198,6 +198,38 @@
       .replace(/'/g, "&#39;");
   }
 
+  // Cache the luminance-to-character mapping between video frames.
+  let lookupKey = "";
+  let characterLookup = new Uint8Array(256);
+  const colorPalette = new Array(4096);
+
+  // A compact 4-bit RGB palette keeps adjacent glyphs in the same colour
+  // run, cutting the number of DOM nodes dramatically on smooth footage.
+  for (let key = 0; key < 4096; key++) {
+    const r = ((key >> 8) & 15) * 17;
+    const g = ((key >> 4) & 15) * 17;
+    const b = (key & 15) * 17;
+    const gray = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    const boost = channel => Math.max(0, Math.min(255,
+      Math.round(gray + (channel - gray) * 1.32 + 7)));
+    colorPalette[key] = `rgb(${boost(r)},${boost(g)},${boost(b)})`;
+  }
+
+  function getCharacterLookup(chars, brightness, contrast, invert) {
+    const key = `${chars}| ${brightness}| ${contrast}| ${invert}`;
+    if (key !== lookupKey) {
+      lookupKey = key;
+      const maxIndex = Math.max(0, chars.length - 1);
+      for (let value = 0; value < 256; value++) {
+        let adjusted = Math.max(0, Math.min(255,
+          (value - 127.5) * contrast + 127.5 + brightness));
+        if (invert) adjusted = 255 - adjusted;
+        characterLookup[value] = Math.round(adjusted / 255 * maxIndex);
+      }
+    }
+    return characterLookup;
+  }
+
   function renderSource() {
     if (isRendering) return;
 
@@ -225,12 +257,15 @@
       const contrast = Number(contrastInput.value) / 100;
       const invert = invertInput.checked;
       const useColor = colorInput.checked;
+      const lookup = getCharacterLookup(chars, brightness, contrast, invert);
       const outputLines = useColor ? new Array(rows) : null;
       const plainLines = new Array(rows);
 
       for (let y = 0; y < rows; y++) {
-        let lineParts = useColor ? "" : null;
-        let plainLine = "";
+        const plainParts = new Array(columns);
+        const htmlParts = useColor ? [] : null;
+        let activeColor = -1;
+        let colorRun = "";
 
         for (let x = 0; x < columns; x++) {
           const index = (y * columns + x) * 4;
@@ -238,37 +273,34 @@
           const g = pixels[index + 1];
           const b = pixels[index + 2];
           const alpha = pixels[index + 3] / 255;
-
-          let luminance =
+          const luminance = Math.max(0, Math.min(255, Math.round(
             (0.2126 * r + 0.7152 * g + 0.0722 * b) * alpha +
-            255 * (1 - alpha);
-
-          luminance = Math.max(
-            0,
-            Math.min(255, (luminance - 127.5) * contrast + 127.5 + brightness)
-          );
-
-          if (invert) luminance = 255 - luminance;
-
-          const charIndex = Math.max(
-            0,
-            Math.min(
-              chars.length - 1,
-              Math.round(luminance / 255 * (chars.length - 1))
-            )
-          );
-
-          const character = chars[charIndex] ?? " ";
-          plainLine += character;
+            255 * (1 - alpha)
+          )));
+          const character = chars[lookup[luminance]] ?? " ";
+          plainParts[x] = character;
 
           if (useColor) {
-            lineParts +=
-              `<span style="color:rgb(${r},${g},${b})">${escapeHtml(character)}</span>`;
+            const colorKey = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+            if (colorKey !== activeColor) {
+              if (colorRun) {
+                htmlParts.push(`<span style="color:${colorPalette[activeColor]}">${escapeHtml(colorRun)}</span>`);
+              }
+              activeColor = colorKey;
+              colorRun = character;
+            } else {
+              colorRun += character;
+            }
           }
         }
 
-        plainLines[y] = plainLine;
-        if (useColor) outputLines[y] = lineParts;
+        plainLines[y] = plainParts.join("");
+        if (useColor) {
+          if (colorRun) {
+            htmlParts.push(`<span style="color:${colorPalette[activeColor]}">${escapeHtml(colorRun)}</span>`);
+          }
+          outputLines[y] = htmlParts.join("");
+        }
       }
 
       lastText = plainLines.join("\n") + "\n";
@@ -356,15 +388,25 @@
       throw new Error("No readable video frame is available.");
     }
 
-    const columns = Number(widthInput.value);
-    const rows = Math.max(
-      1,
-      Math.round(columns * source.height / source.width * 0.9)
-    );
+    // Fixed 16:9 export canvas: 160 × 54 glyph cells at 6 × 10 px.
+    // Contain-fit the source so it is never stretched or cropped.
+    const columns = 160;
+    const rows = 54;
 
     canvas.width = columns;
     canvas.height = rows;
-    ctx.drawImage(source.element, 0, 0, columns, rows);
+    ctx.fillStyle = "#080809";
+    ctx.fillRect(0, 0, columns, rows);
+    const scale = Math.min(columns / source.width, rows / source.height);
+    const drawWidth = source.width * scale;
+    const drawHeight = source.height * scale;
+    ctx.drawImage(
+      source.element,
+      (columns - drawWidth) / 2,
+      (rows - drawHeight) / 2,
+      drawWidth,
+      drawHeight
+    );
 
     const pixels = ctx.getImageData(0, 0, columns, rows).data;
     const chars = charsetInput.value || " .:-=+*#%@";
@@ -373,11 +415,11 @@
     const invert = invertInput.checked;
     const useColor = colorInput.checked;
 
-    const fontSize = Math.max(4, Math.min(6, 480 / columns));
+    const fontSize = 10;
     const outCanvas = document.createElement("canvas");
 
-    outCanvas.width = Math.max(1, Math.round(columns * fontSize));
-    outCanvas.height = Math.max(1, Math.round(rows * fontSize));
+    outCanvas.width = 960;
+    outCanvas.height = 540;
 
     const outCtx = outCanvas.getContext("2d", {
       willReadFrequently: true
@@ -418,11 +460,14 @@
 
         const character = chars[charIndex] ?? " ";
 
-        outCtx.fillStyle = useColor
-          ? `rgb(${r},${g},${b})`
-          : "#f2f2f3";
+        if (useColor) {
+          const colorKey = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+          outCtx.fillStyle = colorPalette[colorKey];
+        } else {
+          outCtx.fillStyle = "#f2f2f3";
+        }
 
-        outCtx.fillText(character, x * fontSize, y * fontSize);
+        outCtx.fillText(character, x * 6, y * 10);
       }
     }
 
