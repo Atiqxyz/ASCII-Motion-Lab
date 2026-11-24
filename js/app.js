@@ -255,7 +255,7 @@
 
       const pixels = ctx.getImageData(0, 0, columns, rows).data;
       const chars = charsetInput.value || " .:-=+*#%@";
-      const brightness = Number(brightnessInput.value);
+      const brightness = Number(brightnessInput.value) * 0.255;
       const contrast = Number(contrastInput.value) / 100;
       const invert = invertInput.checked;
       const useColor = colorInput.checked;
@@ -412,7 +412,7 @@
 
     const pixels = ctx.getImageData(0, 0, columns, rows).data;
     const chars = charsetInput.value || " .:-=+*#%@";
-    const brightness = Number(brightnessInput.value);
+    const brightness = Number(brightnessInput.value) * 0.255;
     const contrast = Number(contrastInput.value) / 100;
     const invert = invertInput.checked;
     const useColor = colorInput.checked;
@@ -843,7 +843,7 @@
 
     const pixels = sampleCtx.getImageData(0, 0, columns, rows).data;
     const chars = charsetInput.value || " .:-=+*#%@";
-    const brightness = Number(brightnessInput.value);
+    const brightness = Number(brightnessInput.value) * 0.255;
     const contrast = Number(contrastInput.value) / 100;
     const invert = invertInput.checked;
     const useColor = colorInput.checked;
@@ -899,8 +899,10 @@
       new Uint8Array(await webmBlob.arrayBuffer()));
     const result = await ffmpeg.exec([
       "-i", "ascii-motion.webm",
-      "-an", "-c:v", "libx264", "-preset", "ultrafast",
-      "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+      "-map", "0:v:0", "-map", "0:a:0?",
+      "-c:v", "libx264", "-preset", "ultrafast",
+      "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k",
+      "-shortest", "-movflags", "+faststart",
       "ascii-motion.mp4"
     ]);
     if (result !== 0) throw new Error("MP4 conversion failed.");
@@ -941,6 +943,12 @@
     const exportCanvas = document.createElement("canvas");
     const exportCtx = exportCanvas.getContext("2d");
     const stream = exportCanvas.captureStream(24);
+    const sourceAudioCapture = typeof video.captureStream === "function"
+      ? video.captureStream()
+      : (typeof video.mozCaptureStream === "function" ? video.mozCaptureStream() : null);
+    if (sourceAudioCapture) {
+      sourceAudioCapture.getAudioTracks().forEach(track => stream.addTrack(track));
+    }
     const chunks = [];
     const mimeType = mp4Type || webmType;
     let recorder;
@@ -1017,6 +1025,9 @@
       toast(error.message || "MP4 export failed.");
     } finally {
       stream.getTracks().forEach(track => track.stop());
+      if (sourceAudioCapture) {
+        sourceAudioCapture.getTracks().forEach(track => track.stop());
+      }
       video.pause();
       stopLoop();
       try {
