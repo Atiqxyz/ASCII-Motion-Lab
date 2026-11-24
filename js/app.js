@@ -902,7 +902,7 @@
       "-map", "0:v:0", "-map", "0:a:0?",
       "-c:v", "libx264", "-preset", "ultrafast",
       "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k",
-      "-shortest", "-movflags", "+faststart",
+      "-movflags", "+faststart",
       "ascii-motion.mp4"
     ]);
     if (result !== 0) throw new Error("MP4 conversion failed.");
