@@ -60,9 +60,7 @@ h1 { font-size: clamp(22px, 4vw, 34px); letter-spacing: -.07em; line-height: 1; 
 .status { color: var(--muted); font-size: 10px; text-align: right; }
 .stage {
   min-height: 430px; display: grid; place-items: center; overflow: auto; padding: 14px;
-  background-color: #080809;
-  background-image: linear-gradient(#18181b 1px, transparent 1px), linear-gradient(90deg, #18181b 1px, transparent 1px);
-  background-size: 22px 22px;
+  background: #080809;
 }
 .placeholder { max-width: 330px; padding: 35px 12px; color: var(--muted); text-align: center; }
 .placeholder-art { color: var(--accent); font-size: 34px; margin-bottom: 13px; }
