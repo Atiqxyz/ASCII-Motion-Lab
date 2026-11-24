@@ -232,6 +232,10 @@
     return characterLookup;
   }
 
+  function getGlyphBrightness() {
+    return Math.max(0, 1 + Number(brightnessInput.value) / 1000);
+  }
+
   function renderSource() {
     if (isRendering) return;
 
@@ -255,11 +259,11 @@
 
       const pixels = ctx.getImageData(0, 0, columns, rows).data;
       const chars = charsetInput.value || " .:-=+*#%@";
-      const brightness = Number(brightnessInput.value) * 0.255;
+      const brightness = 0;
       const contrast = Number(contrastInput.value) / 100;
       const invert = invertInput.checked;
       const useColor = colorInput.checked;
-      const lookup = getCharacterLookup(chars, brightness, contrast, invert);
+      const lookup = getCharacterLookup(chars, 0, contrast, invert);
       const outputLines = useColor ? new Array(rows) : null;
       const plainLines = new Array(rows);
 
@@ -312,6 +316,7 @@
         output.textContent = lastText;
       }
 
+      output.style.filter = `brightness(${getGlyphBrightness()})`;
       const outputFontSize = `${Math.max(4, Math.min(9, 840 / columns))}px`;
       if (output.style.fontSize !== outputFontSize) {
         output.style.fontSize = outputFontSize;
@@ -432,6 +437,7 @@
     outCtx.font = `${fontSize}px "Courier New", monospace`;
     outCtx.textBaseline = "top";
     outCtx.textAlign = "left";
+    outCtx.filter = `brightness(${getGlyphBrightness()})`;
 
     for (let y = 0; y < rows; y++) {
       for (let x = 0; x < columns; x++) {
@@ -447,7 +453,7 @@
 
         luminance = Math.max(
           0,
-          Math.min(255, (luminance - 127.5) * contrast + 127.5 + brightness)
+          Math.min(255, (luminance - 127.5) * contrast + 127.5)
         );
 
         if (invert) luminance = 255 - luminance;
@@ -853,6 +859,7 @@
     exportCtx.font = '10px "Courier New", monospace';
     exportCtx.textBaseline = "top";
     exportCtx.textAlign = "left";
+    exportCtx.filter = `brightness(${getGlyphBrightness()})`;
 
     for (let y = 0; y < rows; y++) {
       for (let x = 0; x < columns; x++) {
