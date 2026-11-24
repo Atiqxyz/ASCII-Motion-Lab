@@ -417,7 +417,7 @@
 
     const pixels = ctx.getImageData(0, 0, columns, rows).data;
     const chars = charsetInput.value || " .:-=+*#%@";
-    const brightness = Number(brightnessInput.value) * 0.255;
+    const brightness = 0;
     const contrast = Number(contrastInput.value) / 100;
     const invert = invertInput.checked;
     const useColor = colorInput.checked;
@@ -849,7 +849,7 @@
 
     const pixels = sampleCtx.getImageData(0, 0, columns, rows).data;
     const chars = charsetInput.value || " .:-=+*#%@";
-    const brightness = Number(brightnessInput.value) * 0.255;
+    const brightness = 0;
     const contrast = Number(contrastInput.value) / 100;
     const invert = invertInput.checked;
     const useColor = colorInput.checked;
