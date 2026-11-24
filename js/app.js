@@ -234,9 +234,11 @@
 
   function getGlyphBrightness() {
     const value = Number(brightnessInput.value);
-    return value < 0
-      ? 1 + value / 1000
-      : 1 + (value / 1000) * 4;
+    return value < 0 ? 1 + value / 1000 : 1;
+  }
+
+  function getGlyphGlow() {
+    return Math.max(0, Number(brightnessInput.value)) / 1000 * 14;
   }
 
   function renderSource() {
@@ -320,6 +322,9 @@
       }
 
       output.style.filter = `brightness(${getGlyphBrightness()})`;
+      output.style.textShadow = getGlyphGlow()
+        ? `0 0 ${getGlyphGlow()}px currentColor`
+        : "none";
       const outputFontSize = `${Math.max(4, Math.min(9, 840 / columns))}px`;
       if (output.style.fontSize !== outputFontSize) {
         output.style.fontSize = outputFontSize;
@@ -441,6 +446,7 @@
     outCtx.textBaseline = "top";
     outCtx.textAlign = "left";
     outCtx.filter = `brightness(${getGlyphBrightness()})`;
+    outCtx.shadowBlur = getGlyphGlow();
 
     for (let y = 0; y < rows; y++) {
       for (let x = 0; x < columns; x++) {
@@ -478,6 +484,7 @@
           outCtx.fillStyle = "#f2f2f3";
         }
 
+        outCtx.shadowColor = outCtx.fillStyle;
         outCtx.fillText(character, x * 6, y * 10);
       }
     }
@@ -863,6 +870,7 @@
     exportCtx.textBaseline = "top";
     exportCtx.textAlign = "left";
     exportCtx.filter = `brightness(${getGlyphBrightness()})`;
+    exportCtx.shadowBlur = getGlyphGlow();
 
     for (let y = 0; y < rows; y++) {
       for (let x = 0; x < columns; x++) {
@@ -884,6 +892,7 @@
         exportCtx.fillStyle = useColor
           ? `rgb(${r},${g},${b})`
           : "#f2f2f3";
+        exportCtx.shadowColor = exportCtx.fillStyle;
         exportCtx.fillText(glyph, x * 6, y * 10);
       }
     }
