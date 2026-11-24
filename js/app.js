@@ -233,7 +233,10 @@
   }
 
   function getGlyphBrightness() {
-    return Math.max(0, 1 + Number(brightnessInput.value) / 1000);
+    const value = Number(brightnessInput.value);
+    return value < 0
+      ? 1 + value / 1000
+      : 1 + (value / 1000) * 4;
   }
 
   function renderSource() {
