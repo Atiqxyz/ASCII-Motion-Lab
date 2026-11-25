@@ -1008,7 +1008,9 @@
       const version = "0.12.10";
       // FFmpeg's main package 0.12.10 is paired with core 0.12.6.
       const coreVersion = "0.12.6";
-      const base = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@" + coreVersion + "/dist/umd";
+      // The local worker runs as an ES module, so it must dynamically import
+      // the ESM core build rather than the UMD script.
+      const base = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@" + coreVersion + "/dist/esm";
       const [{ FFmpeg }, { toBlobURL }] = await Promise.all([
         import("https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js"),
         import("https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.2/dist/esm/index.js")
