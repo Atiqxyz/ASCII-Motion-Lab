@@ -28,6 +28,24 @@
   const colorInput = $("color");
   const autoplayInput = $("autoplay");
 
+  // Export progress UI, created dynamically so it stays self-contained.
+  const exportProgress = document.createElement("div");
+  exportProgress.id = "mp4Progress";
+  exportProgress.style.cssText = "display:none;padding:10px 14px;background:#101012;border-bottom:1px solid #303035;font:11px ui-monospace,monospace;";
+  exportProgress.innerHTML = '<div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:7px"><span id="mp4ProgressLabel">MP4 EXPORT</span><span id="mp4ProgressPercent">0%</span></div><div style="height:7px;background:#303035;border-radius:5px;overflow:hidden"><div id="mp4ProgressFill" style="height:100%;width:0%;background:#ff304f;transition:width .18s"></div></div>';
+  const heading = document.querySelector(".panel-heading");
+  if (heading) heading.insertAdjacentElement("afterend", exportProgress);
+  function updateExportProgress(percent, label) {
+    const clamped = Math.max(0, Math.min(100, percent));
+    exportProgress.style.display = "block";
+    $("mp4ProgressFill").style.width = clamped + "%";
+    $("mp4ProgressPercent").textContent = Math.floor(clamped) + "%";
+    if (label) $("mp4ProgressLabel").textContent = label;
+  }
+  function hideExportProgress() {
+    exportProgress.style.display = "none";
+  }
+
   let objectUrl = null;
   let sourceFile = null;
   let isMp4Exporting = false;
@@ -1060,7 +1078,7 @@
     stopLoop();
 
     try {
-      status.textContent = "LOADING OFFLINE MP4 ENCODER…";
+      updateExportProgress(1, "LOADING ENCODER");\n      status.textContent = "LOADING OFFLINE MP4 ENCODER…";
       toast("Fast export: 12 FPS, up to 120 columns. Original audio will be preserved.", 5000);
 
       const version = "0.12.10";
@@ -1085,7 +1103,7 @@
         wasmURL: await toBlobURL(base + "/ffmpeg-core.wasm", "application/wasm")
       });
 
-      status.textContent = "READING SOURCE VIDEO…";
+      updateExportProgress(5, "READING SOURCE");\n      status.textContent = "READING SOURCE VIDEO…";
       const sourceBytes = new Uint8Array(await inputFile.arrayBuffer());
       await ffmpeg.writeFile(sourcePath, sourceBytes);
 
@@ -1169,12 +1187,12 @@
         }
 
         video.pause();
-        status.textContent = "TRANSFERRING FRAME BATCH…";
+        updateExportProgress(80 + 5 * (segmentIndex + 1) / Math.max(1, Math.ceil(totalFrames / framesPerSegment)), "TRANSFERRING FRAME BATCH");\n        status.textContent = "TRANSFERRING FRAME BATCH…";
         await ffmpeg.writeFile(rawPath, rawFrames);
 
         const segmentPath =
           "segment-" + String(segmentIndex).padStart(4, "0") + ".mp4";
-        status.textContent = "ENCODING VIDEO SEGMENT " + (segmentIndex + 1) + "…";
+        updateExportProgress(80 + 5 * (segmentIndex + 1) / Math.max(1, Math.ceil(totalFrames / framesPerSegment)), "ENCODING SEGMENT " + (segmentIndex + 1));\n        status.textContent = "ENCODING VIDEO SEGMENT " + (segmentIndex + 1) + "…";
         const encodeResult = await ffmpeg.exec([
           "-hide_banner", "-loglevel", "error",
           "-f", "rawvideo",
@@ -1212,7 +1230,7 @@
         videoOnlyPath = "joined-video.mp4";
         temporaryFiles.push(videoOnlyPath);
 
-        status.textContent = "JOINING VIDEO SEGMENTS…";
+        updateExportProgress(87, "JOINING SEGMENTS");\n        status.textContent = "JOINING VIDEO SEGMENTS…";
         const concatResult = await ffmpeg.exec([
           "-hide_banner", "-loglevel", "error",
           "-f", "concat", "-safe", "0",
@@ -1226,7 +1244,7 @@
         }
       }
 
-      status.textContent = "RESTORING ORIGINAL AUDIO…";
+      updateExportProgress(92, "MUXING AUDIO");\n      status.textContent = "RESTORING ORIGINAL AUDIO…";
       const outputPath = "ascii-motion.mp4";
       temporaryFiles.push(outputPath);
       const durationArg = duration.toFixed(3);
@@ -1260,7 +1278,7 @@
         throw new Error("MP4 muxing failed. The source audio could not be added.");
       }
 
-      status.textContent = "FINALIZING MP4…";
+      updateExportProgress(98, "FINALIZING FILE");\n      status.textContent = "FINALIZING MP4…";
       const outputBytes = await ffmpeg.readFile(outputPath);
       const finalBlob = new Blob([outputBytes], { type: "video/mp4" });
       const url = URL.createObjectURL(finalBlob);
@@ -1272,7 +1290,7 @@
       anchor.remove();
       setTimeout(() => URL.revokeObjectURL(url), 10000);
 
-      status.textContent = "MP4 EXPORTED";
+      updateExportProgress(100, "EXPORT COMPLETE");\n      status.textContent = "MP4 EXPORTED";
       toast("ASCII MP4 exported with the source audio.");
     } catch (error) {
       console.error("MP4 export error:", error);
@@ -1281,7 +1299,7 @@
         typeof error === "string"
           ? error
           : (error && error.message) || String(error || "Unknown error");
-      status.textContent = "MP4 FAILED: " + errorMessage.slice(0, 100);
+      updateExportProgress(0, "EXPORT FAILED");\n      status.textContent = "MP4 FAILED: " + errorMessage.slice(0, 100);
       toast("MP4 export failed: " + errorMessage, 8000);
     } finally {
       if (ffmpeg) {
@@ -1304,7 +1322,7 @@
       }
 
       video.muted = originalMuted;
-      isMp4Exporting = false;
+      isMp4Exporting = false;\n      setTimeout(hideExportProgress, 4500);
       fileInput.disabled = false;
       [widthInput, brightnessInput, contrastInput, charsetInput, invertInput, colorInput].forEach(input => {
         input.disabled = false;
