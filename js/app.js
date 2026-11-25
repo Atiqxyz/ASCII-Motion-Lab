@@ -1183,6 +1183,11 @@
           rawFrames.set(framePixels, (frameIndex - chunkStart) * bytesPerFrame);
 
           if ((frameIndex - chunkStart + 1) % fps === 0) {
+            const frameProgress = (frameIndex + 1) / totalFrames;
+            updateExportProgress(
+              8 + 72 * frameProgress,
+              "RENDERING FRAMES · " + Math.floor(frameProgress * 100) + "%"
+            );
             status.textContent = "RENDERING ASCII FRAMES… " +
               (frameIndex + 1) + " / " + totalFrames;
           }
