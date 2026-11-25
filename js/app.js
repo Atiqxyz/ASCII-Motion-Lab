@@ -1423,7 +1423,7 @@
 
       const [media, rendererModule] = await Promise.all([
         import("https://esm.sh/mediabunny@1.66.4"),
-        import("./gpu-ascii-export.js?v=20261125-gpu-export1")
+        import("./gpu-ascii-export.js?v=20261125-aspect-fix1")
       ]);
       const {
         Input,
