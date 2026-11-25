@@ -1006,7 +1006,9 @@
       toast("Preparing offline export. The original audio track will be preserved.");
 
       const version = "0.12.10";
-      const base = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@" + version + "/dist/umd";
+      // FFmpeg's main package 0.12.10 is paired with core 0.12.6.
+      const coreVersion = "0.12.6";
+      const base = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@" + coreVersion + "/dist/umd";
       const [{ FFmpeg }, { toBlobURL }] = await Promise.all([
         import("https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js"),
         import("https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.2/dist/esm/index.js")
@@ -1017,6 +1019,8 @@
         if (message) console.debug("[MP4 encoder]", message);
       });
       await ffmpeg.load({
+        // Workers must be same-origin on GitHub Pages.
+        classWorkerURL: new URL("js/ffmpeg-worker.js", window.location.href).href,
         coreURL: await toBlobURL(base + "/ffmpeg-core.js", "text/javascript"),
         wasmURL: await toBlobURL(base + "/ffmpeg-core.wasm", "application/wasm")
       });
