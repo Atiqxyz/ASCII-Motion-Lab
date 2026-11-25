@@ -1163,7 +1163,6 @@
         "-i", sourcePath,
         "-map", "0:v:0",
         "-map", "1:a?",
-        "-map_metadata", "1",
         "-c:v", "copy",
         "-c:a", "copy",
         "-t", durationArg,
