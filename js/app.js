@@ -883,14 +883,16 @@
 
   // Render one ASCII frame using reusable canvases. Grouping adjacent glyphs
   // into color runs avoids issuing one canvas text operation per character.
-  function drawAsciiExportFrame(exportCanvas, exportCtx, sampleCanvas, sampleCtx) {
+  // Render one optimized ASCII frame. Export dimensions follow the selected
+  // character width and source aspect ratio instead of a fixed 160x54 grid.
+  function drawAsciiExportFrame(
+    exportCanvas, exportCtx, sampleCanvas, sampleCtx, columns, rows
+  ) {
     const source = getSource();
     if (!source) throw new Error("The source video frame is not available.");
 
-    const columns = 160;
-    const rows = 54;
-    const width = 960;
-    const height = 540;
+    const width = columns * 6;
+    const height = rows * 10;
 
     if (sampleCanvas.width !== columns || sampleCanvas.height !== rows) {
       sampleCanvas.width = columns;
@@ -986,15 +988,6 @@
     }
   }
 
-  function canvasToPngBlob(targetCanvas) {
-    return new Promise((resolve, reject) => {
-      targetCanvas.toBlob(blob => {
-        if (blob) resolve(blob);
-        else reject(new Error("Could not encode an ASCII frame."));
-      }, "image/png");
-    });
-  }
-
   async function removeFfmpegFile(ffmpeg, path) {
     try {
       await ffmpeg.deleteFile(path);
@@ -1019,8 +1012,23 @@
     const originalTime = video.currentTime;
     const originalMuted = video.muted;
     const wasPlaying = !video.paused;
-    const fps = 24;
-    const framesPerSegment = fps * 5;
+    // Lower frame density and honor the UI width control for a much lighter
+    // export workload. The original source audio is still muxed unchanged.
+    const fps = 12;
+    const sourceWidth = video.videoWidth || 16;
+    const sourceHeight = video.videoHeight || 9;
+    const columns = Math.max(40, Math.min(120, Number(widthInput.value) || 120));
+    const rows = Math.max(1, Math.round(columns * 0.6 * sourceHeight / sourceWidth));
+    const exportWidth = columns * 6;
+    const exportHeight = rows * 10;
+    const bytesPerFrame = exportWidth * exportHeight * 4;
+    // Keep each raw-frame batch bounded to avoid large transient allocations
+    // on mobile browsers and smaller devices.
+    const maxSegmentBytes = 48 * 1024 * 1024;
+    const framesPerSegment = Math.max(
+      1,
+      Math.min(fps * 5, Math.floor(maxSegmentBytes / bytesPerFrame))
+    );
     const totalFrames = Math.max(1, Math.ceil(duration * fps));
     const extensionMatch = (inputFile.name || "").match(/\.([a-z0-9]{2,5})$/i);
     const extension = extensionMatch
@@ -1124,15 +1132,19 @@
         chunkStart += framesPerSegment, segmentIndex++
       ) {
         const chunkEnd = Math.min(totalFrames, chunkStart + framesPerSegment);
-        const chunkFiles = [];
-        const pendingFrameWrites = [];
+        const framesInChunk = chunkEnd - chunkStart;
+        const rawPath =
+          "raw-segment-" + String(segmentIndex).padStart(4, "0") + ".rgba";
+        temporaryFiles.push(rawPath);
+        const rawFrames = new Uint8Array(framesInChunk * bytesPerFrame);
 
         status.textContent =
-          "PROCESSING ASCII FRAMES… " + (chunkStart + 1) + "-" +
-          chunkEnd + " / " + totalFrames;
+          "RENDERING ASCII FRAMES… " + (chunkStart + 1) + "-" +
+          chunkEnd + " / " + totalFrames + " · " + fps + " FPS";
 
-        // Play through each segment once. Seeking every 1/24 second forces
-        // expensive decoder resets and was the main export-time bottleneck.
+        // Sequential playback avoids costly decoder seeks. Instead of encoding
+        // every frame to PNG and making a worker call per frame, collect raw
+        // RGBA pixels into one bounded buffer and write it once per segment.
         await video.play();
 
         for (let frameIndex = chunkStart; frameIndex < chunkEnd; frameIndex++) {
@@ -1141,43 +1153,36 @@
             Math.max(0, duration - 0.001)
           );
           await waitForVideoTime(frameTime);
-          drawAsciiExportFrame(exportCanvas, exportCtx, sampleCanvas, sampleCtx);
+          drawAsciiExportFrame(
+            exportCanvas, exportCtx, sampleCanvas, sampleCtx, columns, rows
+          );
 
-          const frameName =
-            "frame-" + String(frameIndex - chunkStart + 1).padStart(6, "0") + ".png";
-          chunkFiles.push(frameName);
-          temporaryFiles.push(frameName);
+          const framePixels = exportCtx.getImageData(
+            0, 0, exportWidth, exportHeight
+          ).data;
+          rawFrames.set(framePixels, (frameIndex - chunkStart) * bytesPerFrame);
 
-          // canvas.toBlob snapshots the current canvas, allowing PNG encoding
-          // and FFmpeg writes to overlap with playback of subsequent frames.
-          const frameWrite = canvasToPngBlob(exportCanvas).then(async pngBlob => {
-            await ffmpeg.writeFile(
-              frameName,
-              new Uint8Array(await pngBlob.arrayBuffer())
-            );
-          });
-          pendingFrameWrites.push(frameWrite);
-
-          if ((frameIndex - chunkStart + 1) % 24 === 0) {
-            status.textContent = "PROCESSING ASCII FRAMES… " +
+          if ((frameIndex - chunkStart + 1) % fps === 0) {
+            status.textContent = "RENDERING ASCII FRAMES… " +
               (frameIndex + 1) + " / " + totalFrames;
           }
         }
 
         video.pause();
-        const writeResults = await Promise.allSettled(pendingFrameWrites);
-        const failedWrite = writeResults.find(result => result.status === "rejected");
-        if (failedWrite) throw failedWrite.reason;
+        status.textContent = "TRANSFERRING FRAME BATCH…";
+        await ffmpeg.writeFile(rawPath, rawFrames);
 
         const segmentPath =
           "segment-" + String(segmentIndex).padStart(4, "0") + ".mp4";
         status.textContent = "ENCODING VIDEO SEGMENT " + (segmentIndex + 1) + "…";
         const encodeResult = await ffmpeg.exec([
           "-hide_banner", "-loglevel", "error",
+          "-f", "rawvideo",
+          "-pixel_format", "rgba",
+          "-video_size", exportWidth + "x" + exportHeight,
           "-framerate", String(fps),
-          "-start_number", "1",
-          "-i", "frame-%06d.png",
-          "-frames:v", String(chunkEnd - chunkStart),
+          "-i", rawPath,
+          "-frames:v", String(framesInChunk),
           "-an",
           "-c:v", "libx264",
           "-preset", "ultrafast",
@@ -1193,9 +1198,7 @@
 
         segmentPaths.push(segmentPath);
         temporaryFiles.push(segmentPath);
-        for (const frameName of chunkFiles) {
-          await removeFfmpegFile(ffmpeg, frameName);
-        }
+        await removeFfmpegFile(ffmpeg, rawPath);
       }
 
       let videoOnlyPath = segmentPaths[0];
