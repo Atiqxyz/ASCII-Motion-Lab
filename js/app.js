@@ -672,7 +672,7 @@
       const timer = setTimeout(() => {
         cleanup();
         reject(new Error("Timed out while reading video frame."));
-      }, 5000);
+      }, 15000);
 
       const cleanup = () => {
         clearTimeout(timer);
@@ -1093,6 +1093,8 @@
           temporaryFiles.push(frameName);
 
           if ((frameIndex - chunkStart + 1) % 6 === 0) {
+            status.textContent = "PROCESSING ASCII FRAMES… " +
+              (frameIndex + 1) + " / " + totalFrames;
             await new Promise(resolve => setTimeout(resolve, 0));
           }
         }
