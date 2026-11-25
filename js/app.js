@@ -696,6 +696,54 @@
     });
   }
 
+  // Wait for normal playback to reach a timestamp. Unlike seekVideoTo(),
+  // this lets the browser decode sequentially instead of repositioning the
+  // decoder for every output frame.
+  function waitForVideoTime(seconds) {
+    return new Promise((resolve, reject) => {
+      let animationId = null;
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error("Timed out while waiting for the next decoded video frame."));
+      }, 30000);
+
+      const cleanup = () => {
+        clearTimeout(timer);
+        if (animationId !== null) cancelAnimationFrame(animationId);
+        video.removeEventListener("error", onError);
+      };
+
+      const finish = () => {
+        cleanup();
+        resolve();
+      };
+
+      const onError = () => {
+        cleanup();
+        reject(new Error("The browser could not decode the source video."));
+      };
+
+      const check = () => {
+        if (video.error) {
+          onError();
+          return;
+        }
+        if (video.currentTime + 0.001 >= seconds) {
+          finish();
+          return;
+        }
+        if (video.ended) {
+          finish();
+          return;
+        }
+        animationId = requestAnimationFrame(check);
+      };
+
+      video.addEventListener("error", onError, { once: true });
+      check();
+    });
+  }
+
   async function exportGif() {
   if (
     mediaType !== "video" ||
@@ -1075,35 +1123,49 @@
       ) {
         const chunkEnd = Math.min(totalFrames, chunkStart + framesPerSegment);
         const chunkFiles = [];
+        const pendingFrameWrites = [];
 
         status.textContent =
           "PROCESSING ASCII FRAMES… " + (chunkStart + 1) + "-" +
           chunkEnd + " / " + totalFrames;
+
+        // Play through each segment once. Seeking every 1/24 second forces
+        // expensive decoder resets and was the main export-time bottleneck.
+        await video.play();
 
         for (let frameIndex = chunkStart; frameIndex < chunkEnd; frameIndex++) {
           const frameTime = Math.min(
             frameIndex / fps,
             Math.max(0, duration - 0.001)
           );
-          await seekVideoTo(frameTime);
+          await waitForVideoTime(frameTime);
           drawAsciiExportFrame(exportCanvas, exportCtx, sampleCanvas, sampleCtx);
 
-          const pngBlob = await canvasToPngBlob(exportCanvas);
           const frameName =
             "frame-" + String(frameIndex - chunkStart + 1).padStart(6, "0") + ".png";
-          await ffmpeg.writeFile(
-            frameName,
-            new Uint8Array(await pngBlob.arrayBuffer())
-          );
           chunkFiles.push(frameName);
           temporaryFiles.push(frameName);
 
-          if ((frameIndex - chunkStart + 1) % 6 === 0) {
+          // canvas.toBlob snapshots the current canvas, allowing PNG encoding
+          // and FFmpeg writes to overlap with playback of subsequent frames.
+          const frameWrite = canvasToPngBlob(exportCanvas).then(async pngBlob => {
+            await ffmpeg.writeFile(
+              frameName,
+              new Uint8Array(await pngBlob.arrayBuffer())
+            );
+          });
+          pendingFrameWrites.push(frameWrite);
+
+          if ((frameIndex - chunkStart + 1) % 24 === 0) {
             status.textContent = "PROCESSING ASCII FRAMES… " +
               (frameIndex + 1) + " / " + totalFrames;
-            await new Promise(resolve => setTimeout(resolve, 0));
           }
         }
+
+        video.pause();
+        const writeResults = await Promise.allSettled(pendingFrameWrites);
+        const failedWrite = writeResults.find(result => result.status === "rejected");
+        if (failedWrite) throw failedWrite.reason;
 
         const segmentPath =
           "segment-" + String(segmentIndex).padStart(4, "0") + ".mp4";
