@@ -1014,7 +1014,7 @@
     }
   }
 
-  async function exportMp4() {
+  async function exportMp4Legacy() {
     if (
       mediaType !== "video" ||
       !Number.isFinite(video.duration) ||
@@ -1349,6 +1349,304 @@
         renderSource();
         updateTime();
       }
+    }
+  }
+
+
+  function* exportFrameTimestamps(startTime, totalFrames, fps) {
+    for (let index = 0; index < totalFrames; index++) {
+      yield startTime + index / fps;
+    }
+  }
+
+  function trimExportAudioBuffer(buffer, startFrame, endFrame) {
+    if (startFrame <= 0 && endFrame >= buffer.length) return buffer;
+    const length = Math.max(0, endFrame - startFrame);
+    if (!length) return null;
+    const trimmed = new AudioBuffer({
+      length,
+      numberOfChannels: buffer.numberOfChannels,
+      sampleRate: buffer.sampleRate
+    });
+    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+      trimmed.copyToChannel(
+        buffer.getChannelData(channel).subarray(startFrame, endFrame),
+        channel
+      );
+    }
+    return trimmed;
+  }
+
+  async function exportMp4Fast() {
+    if (
+      mediaType !== "video" ||
+      !Number.isFinite(video.duration) ||
+      video.duration <= 0 ||
+      !sourceFile
+    ) {
+      toast("Load a video first.");
+      return;
+    }
+    if (typeof VideoEncoder === "undefined") {
+      const error = new Error("This browser does not expose the WebCodecs video encoder.");
+      error.useCompatibilityExporter = true;
+      throw error;
+    }
+
+    const inputFile = sourceFile;
+    const duration = video.duration;
+    const originalMuted = video.muted;
+    const wasPlaying = !video.paused;
+    let input = null;
+    let output = null;
+    let renderer = null;
+    let videoSource = null;
+    let audioSource = null;
+    let audioError = null;
+
+    isMp4Exporting = true;
+    mp4Btn.disabled = true;
+    gifBtn.disabled = true;
+    playBtn.disabled = true;
+    stopBtn.disabled = true;
+    seek.disabled = true;
+    fileInput.disabled = true;
+    [widthInput, brightnessInput, contrastInput, charsetInput, invertInput, colorInput].forEach(input => {
+      input.disabled = true;
+    });
+    video.pause();
+    stopLoop();
+
+    try {
+      updateExportProgress(2, "LOADING NATIVE MEDIA PIPELINE");
+      status.textContent = "LOADING FAST MP4 EXPORTER…";
+
+      const [media, rendererModule] = await Promise.all([
+        import("https://esm.sh/mediabunny@1.66.4"),
+        import("./gpu-ascii-export.js?v=20261125-gpu-export1")
+      ]);
+      const {
+        Input,
+        BlobSource,
+        ALL_FORMATS,
+        VideoSampleSink,
+        AudioBufferSink,
+        AudioBufferSource,
+        CanvasSource,
+        Output,
+        Mp4OutputFormat,
+        BufferTarget
+      } = media;
+      const { GPUAsciiRenderer } = rendererModule;
+
+      updateExportProgress(6, "READING VIDEO TRACK");
+      input = new Input({
+        source: new BlobSource(inputFile),
+        formats: ALL_FORMATS
+      });
+      if (!(await input.canRead())) {
+        throw new Error("The native media reader could not recognize this video format.");
+      }
+
+      const videoTrack = await input.getPrimaryVideoTrack();
+      if (!videoTrack) throw new Error("No video track was found in the selected file.");
+
+      const firstTimestamp = await videoTrack.getFirstTimestamp();
+      const sourceWidth = await videoTrack.getDisplayWidth();
+      const sourceHeight = await videoTrack.getDisplayHeight();
+      const startTime = Number.isFinite(firstTimestamp) ? firstTimestamp : 0;
+      const columns = Math.max(40, Math.min(120, Number(widthInput.value) || 120));
+      const rows = Math.max(1, Math.round(columns * 0.6 * sourceHeight / sourceWidth));
+      const fps = 12;
+      const totalFrames = Math.max(1, Math.ceil(duration * fps));
+      const frameDuration = 1 / fps;
+
+      updateExportProgress(9, "INITIALIZING GPU RENDERER");
+      renderer = new GPUAsciiRenderer({
+        columns,
+        rows,
+        charset: charsetInput.value || " .:-=+*#%@",
+        contrast: Number(contrastInput.value) / 100,
+        brightness: getGlyphBrightness(),
+        invert: invertInput.checked,
+        useColor: colorInput.checked
+      });
+
+      const target = new BufferTarget();
+      output = new Output({
+        format: new Mp4OutputFormat(),
+        target
+      });
+      videoSource = new CanvasSource(renderer.canvas, {
+        codec: "avc",
+        bitrate: 2000000,
+        keyFrameInterval: 2,
+        latencyMode: "quality"
+      });
+      output.addVideoTrack(videoSource);
+
+      let audioTrack = null;
+      try {
+        audioTrack = await input.getPrimaryAudioTrack();
+      } catch {
+        audioTrack = null;
+      }
+
+      let audioSink = null;
+      let audioStartTime = startTime;
+      if (audioTrack) {
+        try {
+          const trackAudioStart = await audioTrack.getFirstTimestamp();
+          if (Number.isFinite(trackAudioStart)) {
+            audioStartTime = Math.max(startTime, trackAudioStart);
+          }
+          audioSink = new AudioBufferSink(audioTrack);
+          audioSource = new AudioBufferSource(
+            { codec: "aac", bitrate: 160000 },
+            { startTimestamp: Math.max(0, audioStartTime - startTime) }
+          );
+          output.addAudioTrack(audioSource);
+        } catch (error) {
+          throw new Error("Could not prepare the source audio for MP4: " + (error.message || error));
+        }
+      }
+
+      await output.start();
+      updateExportProgress(12, "DECODING AND RENDERING FRAMES");
+      status.textContent = "DECODING VIDEO · GPU ASCII RENDER…";
+
+      let audioWork = Promise.resolve();
+      if (audioTrack && audioSink && audioSource) {
+        audioWork = (async () => {
+          const audioEndTime = startTime + duration;
+          for await (const wrapped of audioSink.buffers(audioStartTime, audioEndTime)) {
+            const buffer = wrapped.buffer;
+            const sampleRate = buffer.sampleRate;
+            const startFrame = Math.max(
+              0,
+              Math.ceil((startTime - wrapped.timestamp) * sampleRate)
+            );
+            const endFrame = Math.min(
+              buffer.length,
+              Math.floor((audioEndTime - wrapped.timestamp) * sampleRate)
+            );
+            const segment = trimExportAudioBuffer(buffer, startFrame, endFrame);
+            if (segment) await audioSource.add(segment);
+          }
+          audioSource.close();
+        })().catch(error => {
+          audioError = error;
+        });
+      }
+
+      const sampleSink = new VideoSampleSink(videoTrack);
+      let frameIndex = 0;
+      let hasRenderedFrame = false;
+
+      for await (const sample of sampleSink.samplesAtTimestamps(
+        exportFrameTimestamps(startTime, totalFrames, fps)
+      )) {
+        if (sample) {
+          try {
+            renderer.renderSample(sample);
+            hasRenderedFrame = true;
+          } finally {
+            sample.close();
+          }
+        }
+        if (!hasRenderedFrame) {
+          throw new Error("The video decoder did not provide the first frame.");
+        }
+
+        const timestamp = frameIndex / fps;
+        const thisFrameDuration = Math.max(
+          0.001,
+          Math.min(frameDuration, duration - timestamp)
+        );
+        await videoSource.add(timestamp, thisFrameDuration, {
+          keyFrame: frameIndex === 0 || frameIndex % (fps * 2) === 0
+        });
+
+        frameIndex++;
+        if (frameIndex % 2 === 0 || frameIndex === totalFrames) {
+          const frameProgress = frameIndex / totalFrames;
+          updateExportProgress(
+            12 + 76 * frameProgress,
+            "GPU RENDER + NATIVE ENCODE · " + Math.floor(frameProgress * 100) + "%"
+          );
+          status.textContent =
+            "RENDERING ASCII FRAMES… " + frameIndex + " / " + totalFrames;
+        }
+      }
+
+      if (frameIndex === 0) throw new Error("No video frames were decoded.");
+      videoSource.close();
+      await audioWork;
+      if (audioError) {
+        throw new Error("Source audio encoding failed: " + (audioError.message || audioError));
+      }
+      if (audioSource) audioSource.close();
+
+      updateExportProgress(92, "FINALIZING MP4");
+      status.textContent = "FINALIZING NATIVE MP4…";
+      await output.finalize();
+
+      if (!target.buffer) throw new Error("The MP4 encoder returned an empty file.");
+      const blob = new Blob([target.buffer], { type: "video/mp4" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = currentName + "-ascii.mp4";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 15000);
+
+      updateExportProgress(100, "EXPORT COMPLETE");
+      status.textContent = "MP4 EXPORTED";
+      toast("GPU + native MP4 export complete. Source audio preserved.");
+    } finally {
+      if (output && output.state !== "finalized" && output.state !== "canceled") {
+        try {
+          await output.cancel();
+        } catch {}
+      }
+      if (renderer) renderer.destroy();
+      if (input) {
+        try {
+          input.dispose();
+        } catch {}
+      }
+
+      video.pause();
+      stopLoop();
+      video.muted = originalMuted;
+      isMp4Exporting = false;
+      setTimeout(hideExportProgress, 4500);
+      fileInput.disabled = false;
+      [widthInput, brightnessInput, contrastInput, charsetInput, invertInput, colorInput].forEach(input => {
+        input.disabled = false;
+      });
+      setControls(true, true);
+      if (wasPlaying) {
+        video.play().catch(() => {});
+      } else {
+        renderSource();
+        updateTime();
+      }
+    }
+  }
+
+  async function exportMp4() {
+    try {
+      await exportMp4Fast();
+    } catch (error) {
+      console.warn("Fast MP4 export unavailable; switching to compatibility exporter.", error);
+      const message = error && error.message ? error.message : String(error || "Unknown error");
+      toast("Fast exporter unavailable for this browser or file. Switching to compatibility mode.", 6500);
+      updateExportProgress(0, "SWITCHING TO COMPATIBILITY EXPORT");
+      status.textContent = "SWITCHING TO COMPATIBILITY MP4 EXPORT…";
+      await exportMp4Legacy();
     }
   }
 
