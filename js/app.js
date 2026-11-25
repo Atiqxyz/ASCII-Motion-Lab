@@ -1061,7 +1061,7 @@
 
     try {
       status.textContent = "LOADING OFFLINE MP4 ENCODER…";
-      toast("Preparing offline export. The original audio track will be preserved.");
+      toast("Fast export: 12 FPS, up to 120 columns. Original audio will be preserved.", 5000);
 
       const version = "0.12.10";
       // FFmpeg's main package 0.12.10 is paired with core 0.12.6.
@@ -1090,7 +1090,7 @@
       await ffmpeg.writeFile(sourcePath, sourceBytes);
 
       const exportCanvas = document.createElement("canvas");
-      const exportCtx = exportCanvas.getContext("2d");
+      const exportCtx = exportCanvas.getContext("2d", { willReadFrequently: true });
       const sampleCanvas = document.createElement("canvas");
       const sampleCtx = sampleCanvas.getContext("2d", {
         willReadFrequently: true
