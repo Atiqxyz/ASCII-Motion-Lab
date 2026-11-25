@@ -1457,6 +1457,25 @@
       const startTime = Number.isFinite(firstTimestamp) ? firstTimestamp : 0;
       const columns = Math.max(40, Math.min(120, Number(widthInput.value) || 120));
       const rows = Math.max(1, Math.round(columns * 0.6 * sourceHeight / sourceWidth));
+
+      // Keep the encoded canvas at the source's exact display aspect ratio.
+      // H.264 4:2:0 requires even dimensions, so scale the reduced ratio by
+      // the smallest factor that is large enough and makes both sides even.
+      const aspectW = Math.max(1, Math.round(sourceWidth));
+      const aspectH = Math.max(1, Math.round(sourceHeight));
+      const gcd = (a, b) => {
+        while (b) [a, b] = [b, a % b];
+        return a;
+      };
+      const aspectDivisor = gcd(aspectW, aspectH);
+      const ratioWidth = aspectW / aspectDivisor;
+      const ratioHeight = aspectH / aspectDivisor;
+      let aspectScale = Math.max(1, Math.ceil(columns * 6 / ratioWidth));
+      while ((ratioWidth * aspectScale) % 2 || (ratioHeight * aspectScale) % 2) {
+        aspectScale++;
+      }
+      const outputWidth = ratioWidth * aspectScale;
+      const outputHeight = ratioHeight * aspectScale;
       const fps = 12;
       const totalFrames = Math.max(1, Math.ceil(duration * fps));
       const frameDuration = 1 / fps;
@@ -1465,6 +1484,8 @@
       renderer = new GPUAsciiRenderer({
         columns,
         rows,
+        outputWidth,
+        outputHeight,
         charset: charsetInput.value || " .:-=+*#%@",
         contrast: Number(contrastInput.value) / 100,
         brightness: getGlyphBrightness(),
