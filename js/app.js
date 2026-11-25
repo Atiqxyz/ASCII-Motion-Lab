@@ -29,6 +29,8 @@
   const autoplayInput = $("autoplay");
 
   let objectUrl = null;
+  let sourceFile = null;
+  let isMp4Exporting = false;
   let mediaType = null;
   let animationId = null;
   let videoFrameCallbackId = null;
@@ -94,6 +96,7 @@
   }
 
   function clearOldSource() {
+    sourceFile = null;
     stopLoop();
     video.pause();
     video.removeAttribute("src");
@@ -108,6 +111,10 @@
 
   function loadFile(file) {
     if (!file) return;
+    if (isMp4Exporting) {
+      toast("Wait for the MP4 export to finish before changing the source.");
+      return;
+    }
 
     if (
       !file.type.startsWith("image/") &&
@@ -118,6 +125,7 @@
     }
 
     clearOldSource();
+    sourceFile = file;
 
     mediaType = file.type.startsWith("video/") ? "video" : "image";
 
@@ -825,24 +833,26 @@
 }
 
 
-  // Render the current ASCII settings into a dedicated video-export canvas.
-  function drawAsciiExportFrame(exportCanvas, exportCtx) {
+  // Render one ASCII frame using reusable canvases. Grouping adjacent glyphs
+  // into color runs avoids issuing one canvas text operation per character.
+  function drawAsciiExportFrame(exportCanvas, exportCtx, sampleCanvas, sampleCtx) {
     const source = getSource();
-    if (!source) return;
+    if (!source) throw new Error("The source video frame is not available.");
 
     const columns = 160;
     const rows = 54;
     const width = 960;
     const height = 540;
+
+    if (sampleCanvas.width !== columns || sampleCanvas.height !== rows) {
+      sampleCanvas.width = columns;
+      sampleCanvas.height = rows;
+    }
     if (exportCanvas.width !== width || exportCanvas.height !== height) {
       exportCanvas.width = width;
       exportCanvas.height = height;
     }
 
-    const sample = document.createElement("canvas");
-    sample.width = columns;
-    sample.height = rows;
-    const sampleCtx = sample.getContext("2d", { willReadFrequently: true });
     sampleCtx.fillStyle = "#080809";
     sampleCtx.fillRect(0, 0, columns, rows);
 
@@ -859,7 +869,6 @@
 
     const pixels = sampleCtx.getImageData(0, 0, columns, rows).data;
     const chars = charsetInput.value || " .:-=+*#%@";
-    const brightness = 0;
     const contrast = Number(contrastInput.value) / 100;
     const invert = invertInput.checked;
     const useColor = colorInput.checked;
@@ -869,10 +878,13 @@
     exportCtx.font = '10px "Courier New", monospace';
     exportCtx.textBaseline = "top";
     exportCtx.textAlign = "left";
-    exportCtx.filter = `brightness(${getGlyphBrightness()})`;
+    exportCtx.filter = "brightness(" + getGlyphBrightness() + ")";
     exportCtx.shadowBlur = getGlyphGlow();
 
     for (let y = 0; y < rows; y++) {
+      const glyphs = new Array(columns);
+      const colors = useColor ? new Uint16Array(columns) : null;
+
       for (let x = 0; x < columns; x++) {
         const i = (y * columns + x) * 4;
         const r = pixels[i];
@@ -882,18 +894,341 @@
         let luminance =
           (0.2126 * r + 0.7152 * g + 0.0722 * b) * alpha +
           255 * (1 - alpha);
-        luminance = Math.max(0, Math.min(255,
-          (luminance - 127.5) * contrast + 127.5 + brightness));
-        if (invert) luminance = 255 - luminance;
-        const index = Math.max(0, Math.min(chars.length - 1,
-          Math.round(luminance / 255 * (chars.length - 1))));
-        const glyph = chars[index] ?? " ";
 
-        exportCtx.fillStyle = useColor
-          ? `rgb(${r},${g},${b})`
-          : "#f2f2f3";
-        exportCtx.shadowColor = exportCtx.fillStyle;
-        exportCtx.fillText(glyph, x * 6, y * 10);
+        luminance = Math.max(
+          0,
+          Math.min(255, (luminance - 127.5) * contrast + 127.5)
+        );
+        if (invert) luminance = 255 - luminance;
+
+        const index = Math.max(
+          0,
+          Math.min(chars.length - 1,
+            Math.round(luminance / 255 * (chars.length - 1)))
+        );
+        glyphs[x] = chars[index] ?? " ";
+
+        if (useColor) {
+          colors[x] = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+        }
+      }
+
+      if (!useColor) {
+        exportCtx.fillStyle = "#f2f2f3";
+        exportCtx.shadowColor = "#f2f2f3";
+        exportCtx.fillText(glyphs.join(""), 0, y * 10);
+        continue;
+      }
+
+      let runStart = 0;
+      let activeColor = colors[0];
+      for (let x = 1; x <= columns; x++) {
+        if (x < columns && colors[x] === activeColor) continue;
+
+        const color = colorPalette[activeColor];
+        exportCtx.fillStyle = color;
+        exportCtx.shadowColor = color;
+        exportCtx.fillText(glyphs.slice(runStart, x).join(""), runStart * 6, y * 10);
+
+        if (x < columns) {
+          runStart = x;
+          activeColor = colors[x];
+        }
+      }
+    }
+  }
+
+  function canvasToPngBlob(targetCanvas) {
+    return new Promise((resolve, reject) => {
+      targetCanvas.toBlob(blob => {
+        if (blob) resolve(blob);
+        else reject(new Error("Could not encode an ASCII frame."));
+      }, "image/png");
+    });
+  }
+
+  async function removeFfmpegFile(ffmpeg, path) {
+    try {
+      await ffmpeg.deleteFile(path);
+    } catch {
+      // The file may already have been removed or may not have been created.
+    }
+  }
+
+  async function exportMp4() {
+    if (
+      mediaType !== "video" ||
+      !Number.isFinite(video.duration) ||
+      video.duration <= 0 ||
+      !sourceFile
+    ) {
+      toast("Load a video first.");
+      return;
+    }
+
+    const inputFile = sourceFile;
+    const duration = video.duration;
+    const originalTime = video.currentTime;
+    const wasPlaying = !video.paused;
+    const fps = 24;
+    const framesPerSegment = fps * 5;
+    const totalFrames = Math.max(1, Math.ceil(duration * fps));
+    const extensionMatch = (inputFile.name || "").match(/\.([a-z0-9]{2,5})$/i);
+    const extension = extensionMatch
+      ? extensionMatch[1].toLowerCase()
+      : ({
+          "video/mp4": "mp4",
+          "video/webm": "webm",
+          "video/quicktime": "mov",
+          "video/x-matroska": "mkv",
+          "video/ogg": "ogv"
+        }[inputFile.type] || "mp4");
+    const sourcePath = "source-input." + extension;
+    const temporaryFiles = [sourcePath];
+    const segmentPaths = [];
+    let ffmpeg = null;
+
+    isMp4Exporting = true;
+    mp4Btn.disabled = true;
+    gifBtn.disabled = true;
+    playBtn.disabled = true;
+    stopBtn.disabled = true;
+    seek.disabled = true;
+    fileInput.disabled = true;
+    video.pause();
+    stopLoop();
+
+    try {
+      status.textContent = "LOADING OFFLINE MP4 ENCODER…";
+      toast("Preparing offline export. The original audio track will be preserved.");
+
+      const version = "0.12.10";
+      const base = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@" + version + "/dist/umd";
+      const [{ FFmpeg }, { toBlobURL }] = await Promise.all([
+        import("https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js"),
+        import("https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.2/dist/esm/index.js")
+      ]);
+
+      ffmpeg = new FFmpeg();
+      ffmpeg.on("log", ({ message }) => {
+        if (message) console.debug("[MP4 encoder]", message);
+      });
+      await ffmpeg.load({
+        coreURL: await toBlobURL(base + "/ffmpeg-core.js", "text/javascript"),
+        wasmURL: await toBlobURL(base + "/ffmpeg-core.wasm", "application/wasm")
+      });
+
+      status.textContent = "READING SOURCE VIDEO…";
+      const sourceBytes = new Uint8Array(await inputFile.arrayBuffer());
+      await ffmpeg.writeFile(sourcePath, sourceBytes);
+
+      const exportCanvas = document.createElement("canvas");
+      const exportCtx = exportCanvas.getContext("2d");
+      const sampleCanvas = document.createElement("canvas");
+      const sampleCtx = sampleCanvas.getContext("2d", {
+        willReadFrequently: true
+      });
+
+      if (!exportCtx || !sampleCtx) {
+        throw new Error("This browser could not create the export canvases.");
+      }
+
+      if (video.readyState < 2) {
+        await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            cleanup();
+            reject(new Error("Timed out while decoding the source video."));
+          }, 15000);
+          const cleanup = () => {
+            clearTimeout(timeout);
+            video.removeEventListener("loadeddata", onLoaded);
+            video.removeEventListener("error", onError);
+          };
+          const onLoaded = () => {
+            cleanup();
+            resolve();
+          };
+          const onError = () => {
+            cleanup();
+            reject(new Error("The browser could not decode the source video."));
+          };
+          video.addEventListener("loadeddata", onLoaded, { once: true });
+          video.addEventListener("error", onError, { once: true });
+        });
+      }
+
+      await seekVideoTo(0);
+
+      for (
+        let chunkStart = 0, segmentIndex = 0;
+        chunkStart < totalFrames;
+        chunkStart += framesPerSegment, segmentIndex++
+      ) {
+        const chunkEnd = Math.min(totalFrames, chunkStart + framesPerSegment);
+        const chunkFiles = [];
+
+        status.textContent =
+          "PROCESSING ASCII FRAMES… " + (chunkStart + 1) + "-" +
+          chunkEnd + " / " + totalFrames;
+
+        for (let frameIndex = chunkStart; frameIndex < chunkEnd; frameIndex++) {
+          const frameTime = Math.min(
+            frameIndex / fps,
+            Math.max(0, duration - 0.001)
+          );
+          await seekVideoTo(frameTime);
+          drawAsciiExportFrame(exportCanvas, exportCtx, sampleCanvas, sampleCtx);
+
+          const pngBlob = await canvasToPngBlob(exportCanvas);
+          const frameName =
+            "frame-" + String(frameIndex - chunkStart + 1).padStart(6, "0") + ".png";
+          await ffmpeg.writeFile(
+            frameName,
+            new Uint8Array(await pngBlob.arrayBuffer())
+          );
+          chunkFiles.push(frameName);
+          temporaryFiles.push(frameName);
+
+          if ((frameIndex - chunkStart + 1) % 6 === 0) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+          }
+        }
+
+        const segmentPath =
+          "segment-" + String(segmentIndex).padStart(4, "0") + ".mp4";
+        status.textContent = "ENCODING VIDEO SEGMENT " + (segmentIndex + 1) + "…";
+        const encodeResult = await ffmpeg.exec([
+          "-hide_banner", "-loglevel", "error",
+          "-framerate", String(fps),
+          "-start_number", "1",
+          "-i", "frame-%06d.png",
+          "-frames:v", String(chunkEnd - chunkStart),
+          "-an",
+          "-c:v", "libx264",
+          "-preset", "ultrafast",
+          "-crf", "20",
+          "-threads", "2",
+          "-pix_fmt", "yuv420p",
+          segmentPath
+        ]);
+
+        if (encodeResult !== 0) {
+          throw new Error("The offline video encoder could not encode a frame segment.");
+        }
+
+        segmentPaths.push(segmentPath);
+        temporaryFiles.push(segmentPath);
+        for (const frameName of chunkFiles) {
+          await removeFfmpegFile(ffmpeg, frameName);
+        }
+      }
+
+      let videoOnlyPath = segmentPaths[0];
+      if (segmentPaths.length > 1) {
+        const concatText = segmentPaths.map(path => "file '" + path + "'").join("\n");
+        await ffmpeg.writeFile(
+          "segments.txt",
+          new TextEncoder().encode(concatText)
+        );
+        temporaryFiles.push("segments.txt");
+        videoOnlyPath = "joined-video.mp4";
+        temporaryFiles.push(videoOnlyPath);
+
+        status.textContent = "JOINING VIDEO SEGMENTS…";
+        const concatResult = await ffmpeg.exec([
+          "-hide_banner", "-loglevel", "error",
+          "-f", "concat", "-safe", "0",
+          "-i", "segments.txt",
+          "-c", "copy",
+          "-an",
+          videoOnlyPath
+        ]);
+        if (concatResult !== 0) {
+          throw new Error("Could not join the encoded video segments.");
+        }
+      }
+
+      status.textContent = "RESTORING ORIGINAL AUDIO…";
+      const outputPath = "ascii-motion.mp4";
+      temporaryFiles.push(outputPath);
+      const durationArg = duration.toFixed(3);
+      const muxArgs = [
+        "-hide_banner", "-loglevel", "error",
+        "-i", videoOnlyPath,
+        "-i", sourcePath,
+        "-map", "0:v:0",
+        "-map", "1:a?",
+        "-map_metadata", "1",
+        "-c:v", "copy",
+        "-c:a", "copy",
+        "-t", durationArg,
+        "-avoid_negative_ts", "make_zero",
+        "-movflags", "+faststart",
+        outputPath
+      ];
+
+      let muxResult = await ffmpeg.exec(muxArgs);
+      if (muxResult !== 0) {
+        // Some source audio codecs (for example Opus) cannot be stored in MP4.
+        // Re-encode only audio in those cases; the video remains stream-copied.
+        await removeFfmpegFile(ffmpeg, outputPath);
+        const aacArgs = muxArgs.slice();
+        const audioCodecIndex = aacArgs.indexOf("-c:a");
+        aacArgs.splice(audioCodecIndex + 1, 1, "aac");
+        aacArgs.splice(audioCodecIndex + 2, 0, "-b:a", "192k");
+        muxResult = await ffmpeg.exec(aacArgs);
+      }
+
+      if (muxResult !== 0) {
+        throw new Error("MP4 muxing failed. The source audio could not be added.");
+      }
+
+      status.textContent = "FINALIZING MP4…";
+      const outputBytes = await ffmpeg.readFile(outputPath);
+      const finalBlob = new Blob([outputBytes], { type: "video/mp4" });
+      const url = URL.createObjectURL(finalBlob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = currentName + "-ascii.mp4";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+      status.textContent = "MP4 EXPORTED";
+      toast("ASCII MP4 exported with the source audio.");
+    } catch (error) {
+      console.error("MP4 export error:", error);
+      status.textContent = "MP4 EXPORT FAILED";
+      toast(error.message || "MP4 export failed.");
+    } finally {
+      if (ffmpeg) {
+        for (const path of temporaryFiles) {
+          await removeFfmpegFile(ffmpeg, path);
+        }
+        ffmpeg.terminate();
+      }
+
+      video.pause();
+      stopLoop();
+      const restoreTime = Math.min(
+        originalTime,
+        Math.max(0, video.duration - 0.05)
+      );
+      try {
+        await seekVideoTo(restoreTime);
+      } catch {
+        video.currentTime = restoreTime;
+      }
+
+      isMp4Exporting = false;
+      fileInput.disabled = false;
+      setControls(true, true);
+      if (wasPlaying) {
+        video.play().catch(() => {});
+      } else {
+        renderSource();
+        updateTime();
       }
     }
   }
