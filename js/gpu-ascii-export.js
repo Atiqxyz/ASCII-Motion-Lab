@@ -122,11 +122,13 @@ export class GPUAsciiRenderer {
   constructor(options) {
     this.columns = Math.max(1, Math.floor(options.columns));
     this.rows = Math.max(1, Math.floor(options.rows));
-    this.cellWidth = 6;
-    this.cellHeight = 10;
     this.canvas = document.createElement('canvas');
-    this.canvas.width = this.columns * this.cellWidth;
-    this.canvas.height = this.rows * this.cellHeight;
+    this.canvas.width = Math.max(2, Math.round(options.outputWidth || this.columns * 6));
+    this.canvas.height = Math.max(2, Math.round(options.outputHeight || this.rows * 10));
+    // The grid is discrete, but the encoded canvas keeps the source aspect ratio.
+    // Fractional cell dimensions compensate for the rounded character-row count.
+    this.cellWidth = this.canvas.width / this.columns;
+    this.cellHeight = this.canvas.height / this.rows;
 
     const gl = this.canvas.getContext('webgl2', {
       alpha: false,
@@ -196,7 +198,9 @@ export class GPUAsciiRenderer {
     context.fillStyle = '#080809';
     context.fillRect(0, 0, this.columns, this.rows);
     if (typeof sample.drawWithFit === 'function') {
-      sample.drawWithFit(context, { fit: 'contain' });
+      // The character grid is wider than the source pixel grid because glyph
+      // cells are tall; fill compensates for that glyph-cell aspect ratio.
+      sample.drawWithFit(context, { fit: 'fill' });
     } else {
       sample.draw(context, 0, 0, this.columns, this.rows);
     }
