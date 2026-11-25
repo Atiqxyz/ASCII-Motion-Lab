@@ -1524,7 +1524,7 @@
             const sampleRate = buffer.sampleRate;
             const startFrame = Math.max(
               0,
-              Math.ceil((startTime - wrapped.timestamp) * sampleRate)
+              Math.ceil((audioStartTime - wrapped.timestamp) * sampleRate)
             );
             const endFrame = Math.min(
               buffer.length,
