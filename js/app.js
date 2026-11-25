@@ -39,14 +39,14 @@
   let isRendering = false;
   let lastSeekUpdate = 0;
 
-  function toast(message) {
+  function toast(message, duration = 2600) {
     const el = $("toast");
     el.textContent = message;
     el.style.display = "block";
     clearTimeout(toast.timer);
     toast.timer = setTimeout(() => {
       el.style.display = "none";
-    }, 2600);
+    }, duration);
   }
 
   function fmt(seconds) {
@@ -1022,7 +1022,7 @@
       });
       await ffmpeg.load({
         // Workers must be same-origin on GitHub Pages.
-        classWorkerURL: new URL("js/ffmpeg-worker.js", window.location.href).href,
+        classWorkerURL: new URL("js/ffmpeg-worker.js?v=20261125-esm-core-fix", window.location.href).href,
         coreURL: await toBlobURL(base + "/ffmpeg-core.js", "text/javascript"),
         wasmURL: await toBlobURL(base + "/ffmpeg-core.wasm", "application/wasm")
       });
@@ -1209,8 +1209,13 @@
       toast("ASCII MP4 exported with the source audio.");
     } catch (error) {
       console.error("MP4 export error:", error);
-      status.textContent = "MP4 EXPORT FAILED";
-      toast(error.message || "MP4 export failed.");
+      // FFmpeg's worker can reject with a plain string, not an Error object.
+      const errorMessage =
+        typeof error === "string"
+          ? error
+          : (error && error.message) || String(error || "Unknown error");
+      status.textContent = "MP4 FAILED: " + errorMessage.slice(0, 100);
+      toast("MP4 export failed: " + errorMessage, 8000);
     } finally {
       if (ffmpeg) {
         for (const path of temporaryFiles) {
