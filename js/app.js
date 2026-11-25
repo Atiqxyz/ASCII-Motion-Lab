@@ -1017,6 +1017,7 @@
     const inputFile = sourceFile;
     const duration = video.duration;
     const originalTime = video.currentTime;
+    const originalMuted = video.muted;
     const wasPlaying = !video.paused;
     const fps = 24;
     const framesPerSegment = fps * 5;
@@ -1047,6 +1048,7 @@
       input.disabled = true;
     });
     video.pause();
+    video.muted = true; // Keep sequential frame sampling silent; source audio is muxed from the original file.
     stopLoop();
 
     try {
@@ -1298,6 +1300,7 @@
         video.currentTime = restoreTime;
       }
 
+      video.muted = originalMuted;
       isMp4Exporting = false;
       fileInput.disabled = false;
       [widthInput, brightnessInput, contrastInput, charsetInput, invertInput, colorInput].forEach(input => {
