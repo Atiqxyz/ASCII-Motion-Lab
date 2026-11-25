@@ -995,6 +995,9 @@
     stopBtn.disabled = true;
     seek.disabled = true;
     fileInput.disabled = true;
+    [widthInput, brightnessInput, contrastInput, charsetInput, invertInput, colorInput].forEach(input => {
+      input.disabled = true;
+    });
     video.pause();
     stopLoop();
 
@@ -1223,174 +1226,10 @@
 
       isMp4Exporting = false;
       fileInput.disabled = false;
+      [widthInput, brightnessInput, contrastInput, charsetInput, invertInput, colorInput].forEach(input => {
+        input.disabled = false;
+      });
       setControls(true, true);
-      if (wasPlaying) {
-        video.play().catch(() => {});
-      } else {
-        renderSource();
-        updateTime();
-      }
-    }
-  }
-
-  async function convertWebmToMp4(webmBlob) {
-    toast("Loading MP4 encoder (first use may take a while)…");
-    const version = "0.12.10";
-    const base = `https://cdn.jsdelivr.net/npm/@ffmpeg/core@${version}/dist/umd`;
-    const [{ FFmpeg }, { toBlobURL }] = await Promise.all([
-      import("https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js"),
-      import("https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.2/dist/esm/index.js")
-    ]);
-    const ffmpeg = new FFmpeg();
-    ffmpeg.on("log", ({ message }) => {
-      if (message) console.debug("[MP4 encoder]", message);
-    });
-    await ffmpeg.load({
-      coreURL: await toBlobURL(`${base}/ffmpeg-core.js`, "text/javascript"),
-      wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, "application/wasm")
-    });
-    await ffmpeg.writeFile("ascii-motion.webm",
-      new Uint8Array(await webmBlob.arrayBuffer()));
-    const result = await ffmpeg.exec([
-      "-i", "ascii-motion.webm",
-      "-map", "0:v:0", "-map", "0:a:0?",
-      "-c:v", "libx264", "-preset", "ultrafast",
-      "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k",
-      "-movflags", "+faststart",
-      "ascii-motion.mp4"
-    ]);
-    if (result !== 0) throw new Error("MP4 conversion failed.");
-    const data = await ffmpeg.readFile("ascii-motion.mp4");
-    await ffmpeg.deleteFile("ascii-motion.webm");
-    await ffmpeg.deleteFile("ascii-motion.mp4");
-    ffmpeg.terminate();
-    return new Blob([data], { type: "video/mp4" });
-  }
-
-  async function exportMp4() {
-    if (mediaType !== "video" || !Number.isFinite(video.duration) || video.duration <= 0) {
-      toast("Load a video first.");
-      return;
-    }
-    if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) {
-      toast("This browser does not support video recording.");
-      return;
-    }
-
-    const mp4Type = [
-      "video/mp4;codecs=avc1.42E01E",
-      "video/mp4"
-    ].find(type => MediaRecorder.isTypeSupported(type));
-    const webmType = [
-      "video/webm;codecs=vp9",
-      "video/webm;codecs=vp8",
-      "video/webm"
-    ].find(type => MediaRecorder.isTypeSupported(type));
-
-    if (!mp4Type && !webmType) {
-      toast("This browser cannot record a supported video format.");
-      return;
-    }
-
-    const wasPlaying = !video.paused;
-    const originalTime = video.currentTime;
-    const exportCanvas = document.createElement("canvas");
-    const exportCtx = exportCanvas.getContext("2d");
-    const stream = exportCanvas.captureStream(24);
-    const sourceAudioCapture = typeof video.captureStream === "function"
-      ? video.captureStream()
-      : (typeof video.mozCaptureStream === "function" ? video.mozCaptureStream() : null);
-    if (sourceAudioCapture) {
-      sourceAudioCapture.getAudioTracks().forEach(track => stream.addTrack(track));
-    }
-    const chunks = [];
-    const mimeType = mp4Type || webmType;
-    let recorder;
-
-    mp4Btn.disabled = true;
-    gifBtn.disabled = true;
-    playBtn.disabled = true;
-    stopBtn.disabled = true;
-    video.pause();
-    stopLoop();
-
-    try {
-      drawAsciiExportFrame(exportCanvas, exportCtx);
-      recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 6000000 });
-      const recording = new Promise((resolve, reject) => {
-        recorder.ondataavailable = event => {
-          if (event.data && event.data.size) chunks.push(event.data);
-        };
-        recorder.onerror = () => reject(new Error("Video recording failed."));
-        recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType }));
-      });
-
-      video.currentTime = 0;
-      await video.play();
-      recorder.start(250);
-      status.textContent = "RECORDING ASCII VIDEO…";
-      toast("Recording the full video as ASCII. Keep this tab open.");
-
-      await new Promise((resolve, reject) => {
-        let rafId = null;
-        const cleanup = () => {
-          if (rafId !== null) cancelAnimationFrame(rafId);
-          video.removeEventListener("ended", onEnded);
-          video.removeEventListener("error", onError);
-        };
-        const onEnded = () => { cleanup(); resolve(); };
-        const onError = () => { cleanup(); reject(new Error("Source video playback failed.")); };
-        const tick = () => {
-          if (video.ended) { cleanup(); resolve(); return; }
-          drawAsciiExportFrame(exportCanvas, exportCtx);
-          status.textContent = `RECORDING ASCII VIDEO… ${fmt(video.currentTime)} / ${fmt(video.duration)}`;
-          rafId = requestAnimationFrame(tick);
-        };
-        video.addEventListener("ended", onEnded, { once: true });
-        video.addEventListener("error", onError, { once: true });
-        rafId = requestAnimationFrame(tick);
-      });
-
-      video.pause();
-      drawAsciiExportFrame(exportCanvas, exportCtx);
-      recorder.stop();
-      const recordedBlob = await recording;
-
-      let finalBlob = recordedBlob;
-      if (!mp4Type) {
-        status.textContent = "CONVERTING TO MP4…";
-        finalBlob = await convertWebmToMp4(recordedBlob);
-      }
-
-      const url = URL.createObjectURL(finalBlob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${currentName}-ascii.mp4`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 5000);
-      status.textContent = "MP4 EXPORTED";
-      toast("ASCII MP4 exported successfully.");
-    } catch (error) {
-      console.error("MP4 export error:", error);
-      if (recorder && recorder.state !== "inactive") recorder.stop();
-      status.textContent = "MP4 EXPORT FAILED";
-      toast(error.message || "MP4 export failed.");
-    } finally {
-      stream.getTracks().forEach(track => track.stop());
-      if (sourceAudioCapture) {
-        sourceAudioCapture.getTracks().forEach(track => track.stop());
-      }
-      video.pause();
-      stopLoop();
-      try {
-        video.currentTime = Math.min(originalTime, Math.max(0, video.duration - 0.05));
-      } catch {}
-      mp4Btn.disabled = false;
-      gifBtn.disabled = false;
-      playBtn.disabled = false;
-      stopBtn.disabled = false;
       if (wasPlaying) {
         video.play().catch(() => {});
       } else {
