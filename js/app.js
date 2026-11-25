@@ -1078,7 +1078,8 @@
     stopLoop();
 
     try {
-      updateExportProgress(1, "LOADING ENCODER");\n      status.textContent = "LOADING OFFLINE MP4 ENCODER…";
+      updateExportProgress(1, "LOADING ENCODER");
+      status.textContent = "LOADING OFFLINE MP4 ENCODER…";
       toast("Fast export: 12 FPS, up to 120 columns. Original audio will be preserved.", 5000);
 
       const version = "0.12.10";
@@ -1103,7 +1104,8 @@
         wasmURL: await toBlobURL(base + "/ffmpeg-core.wasm", "application/wasm")
       });
 
-      updateExportProgress(5, "READING SOURCE");\n      status.textContent = "READING SOURCE VIDEO…";
+      updateExportProgress(5, "READING SOURCE");
+      status.textContent = "READING SOURCE VIDEO…";
       const sourceBytes = new Uint8Array(await inputFile.arrayBuffer());
       await ffmpeg.writeFile(sourcePath, sourceBytes);
 
@@ -1187,12 +1189,14 @@
         }
 
         video.pause();
-        updateExportProgress(80 + 5 * (segmentIndex + 1) / Math.max(1, Math.ceil(totalFrames / framesPerSegment)), "TRANSFERRING FRAME BATCH");\n        status.textContent = "TRANSFERRING FRAME BATCH…";
+        updateExportProgress(80 + 5 * (segmentIndex + 1) / Math.max(1, Math.ceil(totalFrames / framesPerSegment)), "TRANSFERRING FRAME BATCH");
+        status.textContent = "TRANSFERRING FRAME BATCH…";
         await ffmpeg.writeFile(rawPath, rawFrames);
 
         const segmentPath =
           "segment-" + String(segmentIndex).padStart(4, "0") + ".mp4";
-        updateExportProgress(80 + 5 * (segmentIndex + 1) / Math.max(1, Math.ceil(totalFrames / framesPerSegment)), "ENCODING SEGMENT " + (segmentIndex + 1));\n        status.textContent = "ENCODING VIDEO SEGMENT " + (segmentIndex + 1) + "…";
+        updateExportProgress(80 + 5 * (segmentIndex + 1) / Math.max(1, Math.ceil(totalFrames / framesPerSegment)), "ENCODING SEGMENT " + (segmentIndex + 1));
+        status.textContent = "ENCODING VIDEO SEGMENT " + (segmentIndex + 1) + "…";
         const encodeResult = await ffmpeg.exec([
           "-hide_banner", "-loglevel", "error",
           "-f", "rawvideo",
@@ -1230,7 +1234,8 @@
         videoOnlyPath = "joined-video.mp4";
         temporaryFiles.push(videoOnlyPath);
 
-        updateExportProgress(87, "JOINING SEGMENTS");\n        status.textContent = "JOINING VIDEO SEGMENTS…";
+        updateExportProgress(87, "JOINING SEGMENTS");
+        status.textContent = "JOINING VIDEO SEGMENTS…";
         const concatResult = await ffmpeg.exec([
           "-hide_banner", "-loglevel", "error",
           "-f", "concat", "-safe", "0",
@@ -1244,7 +1249,8 @@
         }
       }
 
-      updateExportProgress(92, "MUXING AUDIO");\n      status.textContent = "RESTORING ORIGINAL AUDIO…";
+      updateExportProgress(92, "MUXING AUDIO");
+      status.textContent = "RESTORING ORIGINAL AUDIO…";
       const outputPath = "ascii-motion.mp4";
       temporaryFiles.push(outputPath);
       const durationArg = duration.toFixed(3);
@@ -1278,7 +1284,8 @@
         throw new Error("MP4 muxing failed. The source audio could not be added.");
       }
 
-      updateExportProgress(98, "FINALIZING FILE");\n      status.textContent = "FINALIZING MP4…";
+      updateExportProgress(98, "FINALIZING FILE");
+      status.textContent = "FINALIZING MP4…";
       const outputBytes = await ffmpeg.readFile(outputPath);
       const finalBlob = new Blob([outputBytes], { type: "video/mp4" });
       const url = URL.createObjectURL(finalBlob);
@@ -1290,7 +1297,8 @@
       anchor.remove();
       setTimeout(() => URL.revokeObjectURL(url), 10000);
 
-      updateExportProgress(100, "EXPORT COMPLETE");\n      status.textContent = "MP4 EXPORTED";
+      updateExportProgress(100, "EXPORT COMPLETE");
+      status.textContent = "MP4 EXPORTED";
       toast("ASCII MP4 exported with the source audio.");
     } catch (error) {
       console.error("MP4 export error:", error);
@@ -1299,7 +1307,8 @@
         typeof error === "string"
           ? error
           : (error && error.message) || String(error || "Unknown error");
-      updateExportProgress(0, "EXPORT FAILED");\n      status.textContent = "MP4 FAILED: " + errorMessage.slice(0, 100);
+      updateExportProgress(0, "EXPORT FAILED");
+      status.textContent = "MP4 FAILED: " + errorMessage.slice(0, 100);
       toast("MP4 export failed: " + errorMessage, 8000);
     } finally {
       if (ffmpeg) {
@@ -1322,7 +1331,8 @@
       }
 
       video.muted = originalMuted;
-      isMp4Exporting = false;\n      setTimeout(hideExportProgress, 4500);
+      isMp4Exporting = false;
+      setTimeout(hideExportProgress, 4500);
       fileInput.disabled = false;
       [widthInput, brightnessInput, contrastInput, charsetInput, invertInput, colorInput].forEach(input => {
         input.disabled = false;
